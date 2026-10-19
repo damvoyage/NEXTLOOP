@@ -12,7 +12,7 @@ jobs:
     name: Engine tests (Linux)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -29,7 +29,9 @@ jobs:
 
   windows:
     name: Windows ${{ matrix.label }}
-    runs-on: windows-latest
+    # windows-latest moved to Visual Studio 2026 in June 2026. windows-2022 keeps
+    # Visual Studio 2022, whose toolset still builds for Windows 7.
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +51,7 @@ jobs:
             arch: Win32
             artifact: NEXTLOOP-Windows7-x86
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DLOOPDECK_BUILD_TESTS=OFF -DLOOPDECK_JUCE_VERSION=${{ matrix.juce }}
       - name: Build
@@ -70,7 +72,7 @@ jobs:
     name: macOS (universal .app)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -G Xcode -DLOOPDECK_BUILD_TESTS=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
       - name: Build
