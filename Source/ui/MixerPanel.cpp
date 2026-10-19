@@ -16,6 +16,34 @@ void LevelMeter::setLevels (float l, float r)
 void LevelMeter::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
+    if (Theme::tech)
+    {
+        // segmented LED ladder: green, amber, red
+        g.setColour (juce::Colours::black.withAlpha (Theme::day ? 0.75f : 0.9f));
+        g.fillRoundedRectangle (r, 2.0f);
+        auto inner = r.reduced (2.0f);
+        const float colW = (inner.getWidth() - 1.0f) * 0.5f;
+        const int segs = juce::jlimit (8, 40, (int) (inner.getHeight() / 4.0f));
+        const float segH = inner.getHeight() / (float) segs;
+        auto toPos = [] (float v) { return juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (v, -60.0f) + 60.0f) / 60.0f); };
+        const float yellowAt = toPos (juce::Decibels::decibelsToGain (-9.0f)), redAt = toPos (juce::Decibels::decibelsToGain (-1.0f));
+        const auto green = juce::Colour (0xff4fd06a), amber = juce::Colour (0xffe8b83a), red = juce::Colour (0xffe8503a);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float lvl = toPos (ch == 0 ? levelL : levelR);
+            const float hold = toPos (ch == 0 ? holdL : holdR);
+            const float x = inner.getX() + ch * (colW + 1.0f);
+            for (int i = 0; i < segs; ++i)
+            {
+                const float p = (i + 0.5f) / (float) segs;
+                const auto c = p >= redAt ? red : (p >= yellowAt ? amber : green);
+                const bool lit = p <= lvl || std::abs (p - hold) < 0.5f / segs;
+                g.setColour (lit ? c : c.withAlpha (0.12f));
+                g.fillRect (x, inner.getBottom() - (i + 1) * segH + 0.5f, colW, segH - 1.0f);
+            }
+        }
+        return;
+    }
     g.setColour (Theme::base);
     g.fillRoundedRectangle (r, 2.0f);
 
@@ -148,8 +176,7 @@ void ChannelComponent::refresh()
 
 void ChannelComponent::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
     g.setColour (hue);
     g.fillRoundedRectangle (getLocalBounds().toFloat().removeFromTop (3.0f), 1.5f);
     g.setFont (Theme::numbers (13.0f));
@@ -261,8 +288,7 @@ void MasterSection::refresh()
 
 void MasterSection::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
     g.setColour (Theme::textDim);
     g.setFont (Theme::label (10.5f));
     g.drawText ("A", crossfader.getBounds().translated (0, 0).withWidth (12).translated (-12, 0), juce::Justification::centred);

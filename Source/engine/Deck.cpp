@@ -250,6 +250,17 @@ void Deck::jumpTo (double newPos, bool allowQuantize)
     readPos = newPos;
 }
 
+void Deck::exitLoopIfOutside (double target)
+{
+    // clicking or seeking outside an active loop leaves it, as on CDJs and in VirtualDJ
+    if (loopActive && (target < loopStart || target >= loopEnd))
+    {
+        loopActive = false;
+        loopInPending = false;
+        if (rollActive || slipActive) { rollActive = false; slipActive = false; }
+    }
+}
+
 void Deck::snapPhaseToMaster (const SyncContext& ctx)
 {
     if (! hasGrid() || ctx.masterBpm <= 1.0) return;
@@ -384,13 +395,31 @@ void Deck::process (float* outL, float* outR, int n, const SyncContext& ctx)
         if (std::abs (err) < 0.0005) correction = 0.0;
     }
     uiPhaseError = phaseErr;
+    uiBraking = braking || backspinning;
 
     // full tempo range: 0 % (stopped) to 200 % (double speed)
-    const double rate = juce::jlimit (0.0, 2.0, base * (1.0 + correction) + (double) bend.load());
+    double rate = juce::jlimit (0.0, 2.0, base * (1.0 + correction) + (double) bend.load());
+    if (braking)
+    {
+        if (! playing) braking = false;
+        brakeFactor -= brakeStep * n;
+        if (brakeFactor <= 0.0)
+        {
+            braking = false;
+            brakeFactor = 1.0;
+            playing = false;
+        }
+        else
+        {
+            rate *= brakeFactor * brakeFactor;   // turntable platters slow fast, then drift
+            correction = 0.0;
+        }
+    }
     uiTempoRatio = juce::jlimit (0.0, 2.0, base + (double) bend.load());
 
     // varispeed unless key lock or a key shift asks for the stretcher
-    const bool useKeyLock = (keyLock.load() || std::abs (keyShift.load()) > 0.001f) && ! scratching && audible;
+    const bool useKeyLock = (keyLock.load() || std::abs (keyShift.load()) > 0.001f) && ! scratching && audible
+                            && ! braking && ! backspinning;
 
     // leaving keylock: bring the read head back to the audible position
     if (! useKeyLock && stretchPrimed)
@@ -400,7 +429,20 @@ void Deck::process (float* outL, float* outR, int n, const SyncContext& ctx)
         readPos = a;
     }
 
-    if (scratching)
+    if (backspinning)
+    {
+        // a hand spin backwards: fast at first, slowing to a stop
+        const double t = spinElapsed / spinLength;
+        const double v = -3.2 * (1.0 - t) * (1.0 - t);
+        renderSource (outL, outR, n, v * srr);
+        spinElapsed += (double) n / deviceSampleRate;
+        if (spinElapsed >= spinLength || readPos <= 0.0)
+        {
+            backspinning = false;
+            playing = false;
+        }
+    }
+    else if (scratching)
     {
         const double desired = (scratchTarget - readPos) / (double) n;
         scratchVelocity += (desired - scratchVelocity) * 0.35;
@@ -481,6 +523,7 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
         Track* old = track;
         track = cmd.track;
         playing = cueHeld = scratching = false;
+        braking = backspinning = false;
         hotCueHeld = -1;
         loopActive = loopInPending = slipActive = rollActive = false;
         loopStart = loopEnd = 0.0;
@@ -497,6 +540,7 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
         playing = false;
         loopActive = false;
         stretchPrimed = false;
+        braking = backspinning = false;
         readPos = 0.0;
         return old;
     }
@@ -529,15 +573,18 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
     switch (cmd.type)
     {
         case C::Play:
+            braking = backspinning = false;
             if (cueHeld || hotCueHeld >= 0) { cueHeld = false; hotCueHeld = -1; playing = true; }
             else if (! playing) startPlayback (ctx);
             break;
 
         case C::Pause:
             playing = false;
+            braking = backspinning = false;
             break;
 
         case C::TogglePlay:
+            if (braking || backspinning) { braking = backspinning = false; playing = true; break; }
             if (cueHeld || hotCueHeld >= 0) { cueHeld = false; hotCueHeld = -1; playing = true; }
             else if (playing) playing = false;
             else startPlayback (ctx);
@@ -626,11 +673,39 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
             break;
 
         case C::SeekFrames:
+            exitLoopIfOutside (juce::jmax (0.0, cmd.a));
             jumpTo (juce::jmax (0.0, cmd.a), false);
             break;
 
         case C::SeekFraction:
-            jumpTo (juce::jlimit (0.0, 1.0, cmd.a) * (double) track->totalFrames.load(), false);
+        {
+            const double target = juce::jlimit (0.0, 1.0, cmd.a) * (double) track->totalFrames.load();
+            exitLoopIfOutside (target);
+            jumpTo (target, false);
+            break;
+        }
+
+        case C::Brake:
+            if (playing && ! backspinning)
+            {
+                braking = true;
+                brakeFactor = 1.0;
+                brakeStep = 1.0 / (juce::jlimit (0.05, 10.0, cmd.a) * deviceSampleRate);
+            }
+            break;
+
+        case C::Backspin:
+            if (playing || cueHeld)
+            {
+                cueHeld = false;
+                playing = true;
+                braking = false;
+                backspinning = true;
+                spinElapsed = 0.0;
+                spinLength = juce::jlimit (0.2, 10.0, cmd.a);
+                if (stretchPrimed) { readPos = audiblePos(); stretchPrimed = false; }
+                xfadeRemaining = 0;
+            }
             break;
 
         case C::SeekBeats:

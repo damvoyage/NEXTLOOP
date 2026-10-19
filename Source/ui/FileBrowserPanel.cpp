@@ -25,7 +25,7 @@ FileBrowserPanel::FileBrowserPanel (AudioEngine& e, juce::PropertiesFile& p) : e
     addAndMakeVisible (placesList);
     placesList.setModel (&placesModel);
     placesList.setRowHeight (24);
-    placesList.setColour (juce::ListBox::backgroundColourId, Theme::panel);
+    placesList.setColour (juce::ListBox::backgroundColourId, Theme::tech ? Theme::lcd : Theme::panel);
 
     addAndMakeVisible (addFolder);
     addFolder.setTooltip ("Add a music folder to the list");
@@ -49,7 +49,7 @@ FileBrowserPanel::FileBrowserPanel (AudioEngine& e, juce::PropertiesFile& p) : e
     table.setModel (this);
     table.setRowHeight (22);
     table.setMultipleSelectionEnabled (false);
-    table.setColour (juce::ListBox::backgroundColourId, Theme::panel);
+    table.setColour (juce::ListBox::backgroundColourId, Theme::tech ? Theme::lcd : Theme::panel);
     auto& h = table.getHeader();
     h.addColumn ("Title", colTitle, 360, 120, 2000, juce::TableHeaderComponent::defaultFlags);
     h.addColumn ("BPM", colBpm, 70, 50, 100, juce::TableHeaderComponent::defaultFlags);
@@ -187,8 +187,8 @@ int FileBrowserPanel::getNumRows() { return (int) shown.size(); }
 
 void FileBrowserPanel::paintRowBackground (juce::Graphics& g, int row, int, int, bool selected)
 {
-    if (selected) g.fillAll (Theme::raised);
-    else if (row % 2) g.fillAll (Theme::panel.brighter (0.025f));
+    if (selected) g.fillAll (Theme::tech ? Theme::active.withAlpha (0.45f) : Theme::raised);
+    else if (row % 2) g.fillAll (Theme::tech ? Theme::lcd.brighter (Theme::day ? 0.03f : 0.05f) : Theme::panel.brighter (0.025f));
 }
 
 void FileBrowserPanel::paintCell (juce::Graphics& g, int row, int column, int w, int h, bool)
@@ -196,7 +196,7 @@ void FileBrowserPanel::paintCell (juce::Graphics& g, int row, int column, int w,
     if (row < 0 || row >= (int) shown.size()) return;
     const auto& e = *shown[(size_t) row];
     juce::String text;
-    auto colour = Theme::text;
+    auto colour = Theme::tech ? Theme::lcdText : Theme::text;
     auto just = juce::Justification::centredLeft;
     g.setFont (Theme::label (13.0f));
 
@@ -273,8 +273,8 @@ void FileBrowserPanel::paintListBoxItem (int row, juce::Graphics& g, int w, int 
 {
     if (row < 0 || row >= places.size()) return;
     const bool current = places[row] == currentFolder;
-    if (current) { g.setColour (Theme::raised); g.fillRect (0, 0, w, h); }
-    g.setColour (current ? Theme::text : Theme::textDim);
+    if (current) { g.setColour (Theme::tech ? Theme::active.withAlpha (0.45f) : Theme::raised); g.fillRect (0, 0, w, h); }
+    g.setColour (current ? (Theme::tech ? Theme::lcdText : Theme::text) : Theme::textDim);
     g.setFont (Theme::label (13.0f, current));
     g.drawText (places[row].getFileName().isEmpty() ? places[row].getFullPathName() : places[row].getFileName(),
                 10, 0, w - 14, h, juce::Justification::centredLeft, true);
@@ -299,8 +299,7 @@ void FileBrowserPanel::listBoxItemClicked (int row, const juce::MouseEvent& e)
 
 void FileBrowserPanel::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
 }
 
 void FileBrowserPanel::resized()

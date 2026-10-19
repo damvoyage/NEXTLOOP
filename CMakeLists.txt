@@ -43,6 +43,7 @@ set(LOOPDECK_ENGINE_SOURCES
     Source/engine/TrackLoader.cpp
     Source/engine/Analysis.cpp
     Source/engine/TimeStretch.cpp
+    Source/engine/Effects.cpp
     Source/engine/Deck.cpp
     Source/engine/Mixer.cpp
     Source/engine/AudioEngine.cpp
@@ -57,6 +58,7 @@ set(LOOPDECK_UI_SOURCES
     Source/ui/FileBrowserPanel.cpp
     Source/ui/SettingsComponent.cpp
     Source/ui/MainComponent.cpp
+    Source/ui/DeckWidgets.cpp
 )
 
 set(LOOPDECK_SYSTEM_INCLUDES

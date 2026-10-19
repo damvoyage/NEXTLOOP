@@ -38,13 +38,65 @@ static bool camelotCompatible (const juce::String& a, const juce::String& b)
     return diff == 1 || diff == 11;
 }
 
+const char* sectionName (Section s)
+{
+    switch (s)
+    {
+        case Section::Browser:  return "Browser";
+        case Section::Mixer:    return "Mixer";
+        case Section::Waves:    return "Waves";
+        case Section::Platter:  return "Platter";
+        case Section::HotCues:  return "Cues";
+        case Section::Loops:    return "Loops";
+        case Section::LoopPads: return "Loop pads";
+        case Section::LoopEdit: return "Loop edit";
+        case Section::Fx:       return "FX";
+        case Section::Tempo:    return "Tempo";
+        case Section::Grid:     return "Grid";
+        case Section::count:    break;
+    }
+    return "";
+}
+
+const char* sectionKey (Section s)
+{
+    static const char* keys[] = { "browser", "mixer", "waves", "platter", "hotcues", "loops", "looppads", "loopedit", "fx", "tempo", "grid" };
+    return keys[juce::jlimit (0, numSections - 1, (int) s)];
+}
+
+const char* sectionTip (Section s)
+{
+    switch (s)
+    {
+        case Section::Browser:  return "Show or hide the file browser";
+        case Section::Mixer:    return "Show or hide the mixer: gain, EQ, filter, faders, crossfader";
+        case Section::Waves:    return "Show or hide the scrolling waveforms";
+        case Section::Platter:  return "Show or hide the spinning platters";
+        case Section::HotCues:  return "Show or hide the hot cue pads";
+        case Section::Loops:    return "Show or hide the loop length and loop buttons";
+        case Section::LoopPads: return "Show or hide the quick loop / loop roll pads";
+        case Section::LoopEdit: return "Show or hide loop in/out, move, jump and fine adjust";
+        case Section::Fx:       return "Show or hide the deck effects";
+        case Section::Tempo:    return "Show or hide the tempo fader, range, nudge and key shift";
+        case Section::Grid:     return "Show or hide the beat grid tools";
+        case Section::count:    break;
+    }
+    return "";
+}
+
 // ===========================================================================
 DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     : engine (e), deck (d), settings (s), loadFile (fn),
       hue (Theme::deck (d)),
-      overview (e, d, fn), stripWave (e, d, fn)
+      overview (e, d, fn), stripWave (e, d, fn), platter (e, d)
 {
     addAndMakeVisible (overview);
+    addAndMakeVisible (platter);
+    for (int i = 0; i < fxSlotsPerDeck; ++i)
+    {
+        fxSlots[(size_t) i] = std::make_unique<FxSlotComponent> (e, d, i);
+        addAndMakeVisible (*fxSlots[(size_t) i]);
+    }
     addChildComponent (stripWave);
     stripWave.setVertical (true);
     stripWave.setSecondsVisible (6.0);
@@ -104,6 +156,17 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     quant.onClick = [this] { auto& dk = engine.getDeck (deck); dk.quantize = ! dk.quantize.load(); };
     setupButton (slip, "Slip", "Loops and scratches return to where the track would have been");
     slip.onClick = [this] { auto& dk = engine.getDeck (deck); dk.slipMode = ! dk.slipMode.load(); };
+    setupButton (brake, "Brake", "Turntable brake: slows to a stop (about one second). Click again or press Play to cancel");
+    brake.onPress = [this] (const juce::ModifierKeys& m)
+    {
+        auto& dk = engine.getDeck (deck);
+        if (dk.uiBraking.load()) engine.post (DeckCommand::Play, deck);
+        else engine.post (DeckCommand::Brake, deck, m.isShiftDown() ? 3.0 : 1.0);
+    };
+    setupButton (spin, "Spin", "Backspin: spins the record backwards and stops");
+    spin.onPress = [this] (const juce::ModifierKeys& m) { engine.post (DeckCommand::Backspin, deck, m.isShiftDown() ? 2.0 : 1.0); };
+    for (auto* b : { &brake, &spin }) b->getProperties().set ("fontScale", 0.85);
+
     setupButton (eject, "Eject", "Unload this deck");
     eject.onClick = [this] { engine.ejectTrack (deck); };
 
@@ -245,6 +308,7 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     pitch.setRange (-1.0, 1.0, 0.0);
     pitch.setDoubleClickReturnValue (true, 0.0);
     pitch.getProperties().set ("bipolar", true);
+    pitch.getProperties().set ("bigCap", true);
     pitch.setColour (juce::Slider::thumbColourId, hue);
     pitch.setTooltip ("Tempo. Double-click to reset");
     pitch.onValueChange = [this]
@@ -293,8 +357,6 @@ void DeckPanel::setupButton (juce::Button& b, const juce::String& text, const ju
 void DeckPanel::setStripMode (bool strip)
 {
     stripMode = strip;
-    stripWave.setVisible (strip);
-    quant.setButtonText ("Quant");
     resized();
 }
 
@@ -549,9 +611,11 @@ void DeckPanel::refresh()
     play.setButtonText (dk.uiPlaying.load() ? "Pause" : "Play");
     sync.setToggleState (dk.syncEnabled.load(), juce::dontSendNotification);
     master.setToggleState (engine.uiMasterDeck.load() == deck, juce::dontSendNotification);
-    master.setButtonText (engine.pinnedMaster.load() == deck ? "Master *" : "Master");
+    if (stripMode) master.setButtonText (engine.pinnedMaster.load() == deck ? "M*" : "Mstr");
+    else master.setButtonText (engine.pinnedMaster.load() == deck ? "Master *" : "Master");
     keyLock.setToggleState (dk.keyLock.load(), juce::dontSendNotification);
-    keyLock.setButtonText (dk.keyLock.load() ? "Key lock" : "Varispeed");
+    if (stripMode) keyLock.setButtonText (dk.keyLock.load() ? "Lock" : "Vari");
+    else keyLock.setButtonText (dk.keyLock.load() ? "Key lock" : "Varispeed");
     keyDown.setToggleState (dk.keyShift.load() < -0.01f, juce::dontSendNotification);
     keyUp.setToggleState (dk.keyShift.load() > 0.01f, juce::dontSendNotification);
     quant.setToggleState (dk.quantize.load(), juce::dontSendNotification);
@@ -559,6 +623,10 @@ void DeckPanel::refresh()
     loopBtn.setToggleState (dk.uiLoopActive.load(), juce::dontSendNotification);
     reloop.setButtonText (dk.uiLoopActive.load() ? "Exit" : "Reloop");
     reloop.setToggleState (dk.uiLoopActive.load(), juce::dontSendNotification);
+
+    brake.setToggleState (dk.uiBraking.load(), juce::dontSendNotification);
+    if (shown (Section::Fx))
+        for (auto& f : fxSlots) f->refresh();
 
     for (int i = 0; i < numHotCues; ++i)
         hot[(size_t) i]->setToggleState (t != nullptr && t->hotCues[(size_t) i].load() >= 0.0, juce::dontSendNotification);
@@ -580,170 +648,360 @@ void DeckPanel::refresh()
 void DeckPanel::repaintWaveforms()
 {
     overview.refresh();
-    if (stripMode) stripWave.refresh();
+    if (stripWave.isVisible()) stripWave.refresh();
+    if (platter.isVisible()) platter.refresh();
 }
 
 void DeckPanel::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
+
+    if (! headerDisplay.isEmpty())
+        Theme::drawInset (g, headerDisplay.toFloat(), 3.0f);
+
     // deck badge
     auto badge = juce::Rectangle<float> (8.0f, 8.0f, 26.0f, 26.0f);
-    g.setColour (hue);
-    g.fillRoundedRectangle (badge, 3.0f);
-    g.setColour (Theme::base);
+    if (Theme::tech)
+    {
+        g.setColour (hue.withAlpha (0.3f));
+        g.fillRoundedRectangle (badge.expanded (1.5f), 4.5f);
+        g.setGradientFill (juce::ColourGradient (hue.brighter (0.3f), badge.getX(), badge.getY(), hue.darker (0.35f),
+                                                 badge.getX(), badge.getBottom(), false));
+        g.fillRoundedRectangle (badge, 3.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.7f));
+        g.drawRoundedRectangle (badge, 3.0f, 1.0f);
+        g.setColour (juce::Colours::white);
+    }
+    else
+    {
+        g.setColour (hue);
+        g.fillRoundedRectangle (badge, 3.0f);
+        g.setColour (Theme::base);
+    }
     g.setFont (Theme::numbers (16.0f));
     g.drawText (juce::String (deck + 1), badge, juce::Justification::centred);
+
+    // the tempo fader's scale and readout
+    if (pitch.isVisible())
+    {
+        auto pr = pitch.getBounds().toFloat();
+        g.setColour (Theme::textDim);
+        g.setFont (Theme::label (9.5f, true));
+        const bool inv = pitchIsInverted();
+        g.drawText (inv ? "-" : "+", juce::Rectangle<float> (pr.getX(), pr.getY() - 1.0f, pr.getWidth(), 10.0f), juce::Justification::centredRight);
+        g.drawText (inv ? "+" : "-", juce::Rectangle<float> (pr.getX(), pr.getBottom() - 9.0f, pr.getWidth(), 10.0f), juce::Justification::centredRight);
+    }
 }
 
 void DeckPanel::resized()
 {
+    applyVisibility();
     auto r = getLocalBounds().reduced (8);
     if (stripMode) layoutStrip (r);
     else layoutWide (r);
     updateLoopLabel();
+    repaint();
+}
+
+void DeckPanel::applyVisibility()
+{
+    auto show = [] (std::initializer_list<juce::Component*> comps, bool v) { for (auto* c : comps) c->setVisible (v); };
+
+    for (auto& h : hot) h->setVisible (shown (Section::HotCues));
+    show ({ &loopPrev, &loopNext, &loopLabel, &unitToggle, &loopBtn, &halve, &dbl, &reloop }, shown (Section::Loops));
+    for (auto& q : quick) q->setVisible (shown (Section::LoopPads));
+    rollMode.setVisible (shown (Section::LoopPads));
+    show ({ &loopIn, &loopOut, &moveL, &moveR, &jumpL, &jumpR, &inL, &inR, &outL, &outR, &fineStep }, shown (Section::LoopEdit));
+    for (auto& f : fxSlots) f->setVisible (shown (Section::Fx));
+    show ({ &pitch, &pitchRange, &nudgeDown, &nudgeUp, &keyDown, &keyUp }, shown (Section::Tempo));
+    show ({ &gridHalf, &gridDouble, &gridL, &gridR, &gridSet, &tap }, shown (Section::Grid));
+    platter.setVisible (shown (Section::Platter));
+    stripWave.setVisible (stripMode && shown (Section::Waves));
+    artist.setVisible (! stripMode);
+    pitchLabel.setVisible (true);
+}
+
+// ---------------------------------------------------------------------------
+namespace
+{
+    constexpr int wideRowH = 26, wideGap = 4, wideHeader = 30, wideOverview = 26;
+}
+
+int DeckPanel::preferredWideHeight (int width) const
+{
+    int rows = 1;   // sync / master / key lock / quant / slip / eject
+    if (shown (Section::HotCues)) rows += 1;
+    if (shown (Section::Loops)) rows += 1;
+    if (shown (Section::LoopPads)) rows += 1;
+    if (shown (Section::LoopEdit)) rows += 2;
+    if (shown (Section::Fx)) rows += width >= 900 ? 1 : 2;
+    if (shown (Section::Grid)) rows += 1;
+    const int body = rows * wideRowH + (rows - 1) * wideGap;
+    const int leftMin = shown (Section::Platter) ? 124 : 70;
+    const int rightMin = shown (Section::Tempo) ? 110 : 0;
+    return 16 + wideHeader + 4 + wideOverview + 6 + juce::jmax (body, leftMin, rightMin);
 }
 
 void DeckPanel::layoutWide (juce::Rectangle<int> r)
 {
-    // header
-    auto header = r.removeFromTop (30);
+    quant.setButtonText ("Quant");
+    for (auto* b : std::initializer_list<juce::TextButton*> { &moveL, &moveR, &inL, &inR, &outL, &outR, &jumpL, &jumpR, &gridL, &gridR,
+                                                              &sync, &master, &quant, &slip, &reloop, &unitToggle, &eject })
+        b->getProperties().set ("fontScale", 1.0);
+
+    // header: title on the left, an LCD window with time / key / pitch / BPM on the right
+    auto header = r.removeFromTop (wideHeader);
     header.removeFromLeft (32);
-    auto right = header.removeFromRight (juce::jmin (300, header.getWidth() / 2));
-    auto bpmArea = right.removeFromRight (90);
-    bpmLabel.setBounds (bpmArea);
-    pitchLabel.setBounds (right.removeFromRight (64));
-    keyLabel.setBounds (right.removeFromRight (40));
+    auto right = header.removeFromRight (juce::jmin (330, header.getWidth() * 3 / 5));
+    headerDisplay = right.expanded (0, 1);
+    right.reduce (6, 0);
+    bpmLabel.setJustificationType (juce::Justification::centredRight);
+    bpmLabel.setBounds (right.removeFromRight (92));
+    pitchLabel.setBounds (right.removeFromRight (68));
+    keyLabel.setBounds (right.removeFromRight (52));
     timeLabel.setBounds (right);
+    header.removeFromRight (6);
     title.setBounds (header.removeFromTop (17));
     artist.setBounds (header);
 
-    r.removeFromTop (6);
-    overview.setBounds (r.removeFromTop (juce::jlimit (22, 40, r.getHeight() / 8)));
+    r.removeFromTop (4);
+    overview.setBounds (r.removeFromTop (wideOverview));
     r.removeFromTop (6);
 
-    // pitch column on the right
-    pitch.setSliderStyle (juce::Slider::LinearVertical);
-    auto pitchCol = r.removeFromRight (62);
-    pitchRange.setBounds (pitchCol.removeFromTop (22));
-    auto nudges = pitchCol.removeFromBottom (24);
-    spread (nudges, { &nudgeDown, &nudgeUp }, 2);
-    pitchCol.removeFromBottom (3);
-    spread (pitchCol.removeFromBottom (24), { &keyDown, &keyUp }, 2);
-    pitch.setBounds (pitchCol.reduced (0, 4));
-    r.removeFromRight (6);
-
-    // big transport on the left
-    auto transport = r.removeFromLeft (juce::jlimit (60, 90, r.getWidth() / 8));
-    const int th = transport.getHeight();
-    cue.setBounds (transport.removeFromTop (th / 2 - 2));
-    transport.removeFromTop (4);
-    play.setBounds (transport);
+    // --- left: platter + transport ------------------------------------------
+    const bool hasPlatter = shown (Section::Platter);
+    auto left = r.removeFromLeft (hasPlatter ? juce::jlimit (96, 170, juce::jmin (r.getHeight() - 52, r.getWidth() / 4)) : 84);
     r.removeFromLeft (6);
+    {
+        auto spinRow = left.removeFromBottom (20);
+        spread (spinRow, { &brake, &spin }, 3);
+        left.removeFromBottom (4);
+        if (hasPlatter)
+        {
+            auto transport = left.removeFromBottom (juce::jlimit (26, 40, left.getHeight() / 5));
+            spread (transport, { &cue, &play }, 4);
+            left.removeFromBottom (4);
+            platter.setBounds (left);
+        }
+        else
+        {
+            const int th = left.getHeight();
+            cue.setBounds (left.removeFromTop (th / 2 - 2));
+            left.removeFromTop (4);
+            play.setBounds (left);
+        }
+    }
 
-    // rows
-    const int rows = 6;
-    const int gap = 4;
-    const int rh = (r.getHeight() - gap * (rows - 1)) / rows;
-    auto row = [&] { auto x = r.removeFromTop (rh); r.removeFromTop (gap); return x; };
+    // --- right: tempo column ---------------------------------------------------
+    if (shown (Section::Tempo))
+    {
+        // the fader gets the full height of the deck; nudge and key shift sit in the button rows
+        auto col = r.removeFromRight (58);
+        r.removeFromRight (6);
+        pitchRange.setBounds (col.removeFromTop (22));
+        col.removeFromTop (2);
+        pitch.setSliderStyle (juce::Slider::LinearVertical);
+        pitch.setBounds (col.reduced (2, 8));
+    }
 
+    // --- centre rows -------------------------------------------------------------
+    std::vector<std::function<void (juce::Rectangle<int>)>> rows;
+    if (shown (Section::HotCues))
+        rows.push_back ([this] (juce::Rectangle<int> a)
+        {
+            spread (a, { hot[0].get(), hot[1].get(), hot[2].get(), hot[3].get(), hot[4].get(), hot[5].get(), hot[6].get(), hot[7].get() });
+        });
+    if (shown (Section::Loops))
+        rows.push_back ([this] (juce::Rectangle<int> a)
+        {
+            auto len = a.removeFromLeft (juce::jmin (210, a.getWidth() * 2 / 5));
+            loopPrev.setBounds (len.removeFromLeft (24));
+            loopNext.setBounds (len.removeFromRight (24));
+            loopLabel.setBounds (len.reduced (3, 0));
+            a.removeFromLeft (3);
+            spread (a, { &unitToggle, &loopBtn, &halve, &dbl, &reloop });
+        });
+    if (shown (Section::LoopPads))
+        rows.push_back ([this] (juce::Rectangle<int> a)
+        {
+            spread (a, { quick[0].get(), quick[1].get(), quick[2].get(), quick[3].get(), quick[4].get(), quick[5].get(), quick[6].get(), quick[7].get(), &rollMode });
+        });
+    if (shown (Section::LoopEdit))
     {
-        auto a = row();
-        spread (a, { hot[0].get(), hot[1].get(), hot[2].get(), hot[3].get(), hot[4].get(), hot[5].get(), hot[6].get(), hot[7].get() });
+        rows.push_back ([this] (juce::Rectangle<int> a) { spread (a, { &loopIn, &loopOut, &moveL, &moveR, &jumpL, &jumpR }); });
+        rows.push_back ([this] (juce::Rectangle<int> a)
+        {
+            fineStep.setBounds (a.removeFromRight (juce::jmin (110, a.getWidth() / 5)));
+            a.removeFromRight (3);
+            spread (a, { &inL, &inR, &outL, &outR });
+        });
     }
+    if (shown (Section::Fx))
     {
-        auto a = row();
-        auto len = a.removeFromLeft (juce::jmin (220, a.getWidth() * 2 / 5));
-        loopPrev.setBounds (len.removeFromLeft (24));
-        loopNext.setBounds (len.removeFromRight (24));
-        loopLabel.setBounds (len.reduced (3, 0));
-        a.removeFromLeft (3);
-        spread (a, { &unitToggle, &loopBtn, &halve, &dbl, &reloop });
+        if (r.getWidth() >= 560)
+            rows.push_back ([this] (juce::Rectangle<int> a) { spread (a, { fxSlots[0].get(), fxSlots[1].get(), fxSlots[2].get() }, 4); });
+        else
+        {
+            rows.push_back ([this] (juce::Rectangle<int> a) { spread (a, { fxSlots[0].get(), fxSlots[1].get() }, 4); });
+            rows.push_back ([this] (juce::Rectangle<int> a) { fxSlots[2]->setBounds (a.withWidth ((a.getWidth() - 4) / 2)); });
+        }
     }
-    spread (row(), { quick[0].get(), quick[1].get(), quick[2].get(), quick[3].get(), quick[4].get(), quick[5].get(), quick[6].get(), quick[7].get(), &rollMode });
+    if (shown (Section::Tempo))
+        rows.push_back ([this] (juce::Rectangle<int> a)
+        {
+            eject.setBounds (a.removeFromRight (juce::jmax (40, a.getWidth() / 11)));
+            a.removeFromRight (8);
+            auto t = a.removeFromRight (a.getWidth() * 4 / 10);
+            spread (t, { &nudgeDown, &nudgeUp, &keyDown, &keyUp }, 2);
+            a.removeFromRight (8);
+            spread (a, { &sync, &master, &keyLock, &quant, &slip });
+        });
+    else
+        rows.push_back ([this] (juce::Rectangle<int> a) { spread (a, { &sync, &master, &keyLock, &quant, &slip, &eject }); });
+    if (shown (Section::Grid))
+        rows.push_back ([this] (juce::Rectangle<int> a) { spread (a, { &gridHalf, &gridDouble, &gridL, &gridR, &gridSet, &tap }); });
+
+    const int n = (int) rows.size();
+    const int rh = juce::jlimit (18, 34, (r.getHeight() - wideGap * (n - 1)) / juce::jmax (1, n));
+    for (auto& place : rows)
     {
-        auto a = row();
-        spread (a, { &loopIn, &loopOut, &moveL, &moveR, &jumpL, &jumpR });
-    }
-    {
-        auto a = row();
-        auto combo = a.removeFromRight (juce::jmin (110, a.getWidth() / 5));
-        fineStep.setBounds (combo);
-        a.removeFromRight (3);
-        spread (a, { &inL, &inR, &outL, &outR, &eject });
-    }
-    {
-        auto a = r;
-        spread (a, { &sync, &master, &keyLock, &quant, &slip, &gridHalf, &gridDouble, &gridL, &gridR, &gridSet, &tap });
+        place (r.removeFromTop (rh));
+        r.removeFromTop (wideGap);
     }
 }
 
 void DeckPanel::layoutStrip (juce::Rectangle<int> r)
 {
-    auto header = r.removeFromTop (44);
-    auto top = header.removeFromTop (28);
+    // header: title, then BPM on the left and an LCD with time, key and tempo
+    auto header = r.removeFromTop (54);
+    auto top = header.removeFromTop (26);
     top.removeFromLeft (32);
+    eject.setBounds (top.removeFromRight (38).reduced (0, 3));
+    top.removeFromRight (3);
     title.setBounds (top);
-    auto line2 = header;
-    bpmLabel.setBounds (line2.removeFromLeft (line2.getWidth() / 2).withTrimmedTop (-4));
+    header.removeFromTop (2);
+    headerDisplay = header;
+    auto lcd = header.reduced (4, 1);
     bpmLabel.setJustificationType (juce::Justification::centredLeft);
-    keyLabel.setBounds (line2.removeFromLeft (line2.getWidth() / 3));
-    timeLabel.setBounds (line2);
+    bpmLabel.setBounds (lcd.removeFromLeft (lcd.getWidth() / 2 + 6));
+    auto info = lcd;
+    timeLabel.setBounds (info.removeFromTop (info.getHeight() / 2));
+    keyLabel.setBounds (info.removeFromLeft (info.getWidth() / 2));
+    pitchLabel.setBounds (info);
     artist.setBounds ({});
-    pitchLabel.setBounds ({});
 
     r.removeFromTop (4);
     overview.setBounds (r.removeFromTop (20));
     r.removeFromTop (5);
 
-    auto wave = r.removeFromLeft ((int) (r.getWidth() * 0.36f));
-    stripWave.setBounds (wave);
-    r.removeFromLeft (5);
-
     const int gap = 3;
-    const int rows = 19;
-    const int rh = juce::jlimit (16, 30, (r.getHeight() - gap * (rows - 1)) / rows);
-    auto row = [&] { auto x = r.removeFromTop (rh); r.removeFromTop (gap); return x; };
+    const int rh = juce::jlimit (18, 26, r.getHeight() / 26);
+    std::vector<std::pair<int, std::function<void (juce::Rectangle<int>)>>> rows;   // height, placer
 
-    spread (row(), { &cue, &play });
-    spread (row(), { &sync, &master });
-    spread (row(), { &keyLock, &quant, &slip });
-    spread (row(), { hot[0].get(), hot[1].get(), hot[2].get(), hot[3].get() });
-    spread (row(), { hot[4].get(), hot[5].get(), hot[6].get(), hot[7].get() });
+    const bool waves = shown (Section::Waves);
+    const bool hasPlatter = shown (Section::Platter);
+    const bool tempo = shown (Section::Tempo);
+
+    // transport (with the platter beside it when the waveform has the big space)
+    // rough count of the fixed rows, so a short window shrinks the platter before the waveform
+    int fixedRows = 2 + (tempo ? 1 : 0) + (shown (Section::HotCues) ? 2 : 0) + (shown (Section::Loops) ? 2 : 0)
+                  + (shown (Section::LoopPads) ? 2 : 0) + (shown (Section::LoopEdit) ? 3 : 0)
+                  + (shown (Section::Fx) ? fxSlotsPerDeck : 0) + (shown (Section::Grid) ? 1 : 0);
+    const int spareForWave = r.getHeight() - fixedRows * (rh + gap + 1);
+    if (hasPlatter && waves)
     {
-        auto a = row();
-        loopPrev.setBounds (a.removeFromLeft (20));
-        loopNext.setBounds (a.removeFromRight (20));
-        loopLabel.setBounds (a.reduced (2, 0));
+        const int ph = juce::jlimit (66, 110, juce::jmin (r.getWidth() / 2, (spareForWave - 150) ));
+        rows.push_back ({ ph, [this] (juce::Rectangle<int> a)
+        {
+            platter.setBounds (a.removeFromLeft (a.getHeight()));
+            a.removeFromLeft (4);
+            const int bh = (a.getHeight() - 6) / 3;
+            cue.setBounds (a.removeFromTop (bh)); a.removeFromTop (3);
+            play.setBounds (a.removeFromTop (bh)); a.removeFromTop (3);
+            spread (a, { &brake, &spin }, 3);
+        } });
     }
-    spread (row(), { &loopBtn, &halve, &dbl, &unitToggle });
-    spread (row(), { quick[0].get(), quick[1].get(), quick[2].get(), quick[3].get() });
-    spread (row(), { quick[4].get(), quick[5].get(), quick[6].get(), quick[7].get() });
-    spread (row(), { &loopIn, &loopOut, &reloop, &rollMode });
-    spread (row(), { &moveL, &moveR });
-    spread (row(), { &inL, &inR, &outL, &outR });
-    fineStep.setBounds (row());
-    spread (row(), { &jumpL, &jumpR });
+    else
     {
-        auto a = row();
-        pitchRange.setBounds (a.removeFromRight (56));
-        a.removeFromRight (3);
-        spread (a, { &nudgeDown, &nudgeUp });
+        rows.push_back ({ rh + 6, [this] (juce::Rectangle<int> a) { spread (a, { &cue, &play }, 4); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &brake, &spin }, 3); } });
     }
-    spread (row(), { &keyDown, &keyUp });
-    spread (row(), { &gridHalf, &gridDouble, &tap });
-    spread (row(), { &gridL, &gridR, &gridSet });
+    if (tempo)
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a)
+        {
+            pitchRange.setBounds (a.removeFromLeft (juce::jmax (52, a.getWidth() / 3)));
+            a.removeFromLeft (3);
+            spread (a, { &nudgeDown, &nudgeUp, &keyDown, &keyUp }, 2);
+        } });
+    rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &sync, &master, &keyLock, &quant, &slip }, 2); } });
+    if (shown (Section::HotCues))
     {
-        auto a = row();
-        eject.setBounds (a.removeFromRight (44));
-        a.removeFromRight (3);
-        pitch.setSliderStyle (juce::Slider::LinearHorizontal);
-        pitch.setBounds (a);
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { hot[0].get(), hot[1].get(), hot[2].get(), hot[3].get() }); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { hot[4].get(), hot[5].get(), hot[6].get(), hot[7].get() }); } });
+    }
+    if (shown (Section::Loops))
+    {
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a)
+        {
+            loopPrev.setBounds (a.removeFromLeft (20));
+            loopNext.setBounds (a.removeFromRight (20));
+            loopLabel.setBounds (a.reduced (2, 0));
+        } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &loopBtn, &halve, &dbl, &reloop, &unitToggle }, 2); } });
+    }
+    if (shown (Section::LoopPads))
+    {
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { quick[0].get(), quick[1].get(), quick[2].get(), quick[3].get() }); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { quick[4].get(), quick[5].get(), quick[6].get(), quick[7].get(), &rollMode }); } });
+    }
+    if (shown (Section::LoopEdit))
+    {
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &loopIn, &loopOut, &moveL, &moveR }); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &inL, &inR, &outL, &outR }); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a)
+        {
+            fineStep.setBounds (a.removeFromLeft (a.getWidth() * 2 / 5));
+            a.removeFromLeft (3);
+            spread (a, { &jumpL, &jumpR });
+        } });
+    }
+    if (shown (Section::Fx))
+        for (int i = 0; i < fxSlotsPerDeck; ++i)
+            rows.push_back ({ rh + 4, [this, i] (juce::Rectangle<int> a) { fxSlots[(size_t) i]->setBounds (a); } });
+    if (shown (Section::Grid))
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &gridHalf, &gridDouble, &gridL, &gridR, &gridSet, &tap }, 2); } });
+
+    // everything else stacks at the bottom; the waveform (and tempo fader) take what's left
+    int needed = 0;
+    for (auto& rw : rows) needed += rw.first + gap;
+    auto controls = r.removeFromBottom (juce::jmin (r.getHeight() - 30, needed));
+    for (auto& rw : rows)
+    {
+        rw.second (controls.removeFromTop (rw.first));
+        controls.removeFromTop (gap);
     }
 
-    for (auto* b : std::initializer_list<juce::TextButton*> { &moveL, &moveR, &inL, &inR, &outL, &outR, &jumpL, &jumpR, &gridL, &gridR })
+    auto flex = r.withTrimmedBottom (gap);
+    if (tempo)
+    {
+        pitch.setSliderStyle (juce::Slider::LinearVertical);
+        pitch.setBounds (flex.removeFromRight (30).reduced (0, 6));
+        flex.removeFromRight (4);
+    }
+    if (waves)
+        stripWave.setBounds (flex);
+    else if (hasPlatter)
+        platter.setBounds (flex.withSizeKeepingCentre (juce::jmin (flex.getWidth(), flex.getHeight()), juce::jmin (flex.getWidth(), flex.getHeight())));
+
+    // short labels in narrow strips
+    sync.setButtonText ("Sync");
+    master.setButtonText (engine.pinnedMaster.load() == deck ? "M*" : "Mstr");
+    quant.setButtonText ("Q");
+    for (auto* b : std::initializer_list<juce::TextButton*> { &moveL, &moveR, &inL, &inR, &outL, &outR, &jumpL, &jumpR, &gridL, &gridR,
+                                                              &sync, &master, &keyLock, &quant, &slip, &reloop, &unitToggle, &eject })
         b->getProperties().set ("fontScale", 0.8);
 }
+
 
 void DeckPanel::mouseDoubleClick (const juce::MouseEvent& e)
 {

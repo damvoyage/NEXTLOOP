@@ -41,6 +41,7 @@ void AudioEngine::prepare (double sampleRate)
 {
     currentSampleRate = sampleRate;
     for (auto& d : decks) d->prepare (sampleRate, internalBlock);
+    for (auto& f : fxChains) f.prepare (sampleRate, internalBlock);
     for (int i = 0; i < maxDecks; ++i)
     {
         deckL[(size_t) i].assign (internalBlock, 0.0f);
@@ -188,6 +189,15 @@ void AudioEngine::processChunk (float* const* outputs, int numOutputChannels, in
     for (int i = 0; i < nd; ++i)
         if (i != ctx.masterIndex)
             decks[(size_t) i]->process (deckL[(size_t) i].data(), deckR[(size_t) i].data(), n, ctx);
+
+    // deck effects (pre-EQ, pre-fader, as on a DJ mixer's channel FX)
+    for (int i = 0; i < nd; ++i)
+    {
+        auto& d = *decks[(size_t) i];
+        const double bpm = d.hasGrid() ? d.uiEffectiveBpm.load() : 0.0;
+        fxChains[(size_t) i].process (deckL[(size_t) i].data(), deckR[(size_t) i].data(), n,
+                                      deckFx[(size_t) i], bpm, d.getBeatPosition());
+    }
 
     if (! ctx.deckIsMaster)
         internalBeat += (double) n * internalBpm.load() / 60.0 / sr;

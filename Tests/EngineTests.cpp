@@ -247,6 +247,51 @@ int main (int argc, char** argv)
     }
 
     // =======================================================================
+    std::printf ("\n== 4b. Clicking outside a loop leaves it; brake and backspin ==\n");
+    {
+        engine.post (DeckCommand::Play, 0);
+        engine.post (DeckCommand::AutoLoop, 0, 4.0);
+        rig.render (0.3);
+        CHECK (d0.uiLoopActive.load(), "loop not set before seek test");
+        const double ls = d0.uiLoopStart.load();
+        // seek inside the loop: loop stays
+        engine.post (DeckCommand::SeekFrames, 0, ls + fpb);
+        rig.tick();
+        CHECK (d0.uiLoopActive.load(), "seek inside the loop dropped it");
+        // click on the overview well past the loop: loop ends and playback continues there
+        const double frac = 0.8;
+        engine.post (DeckCommand::SeekFraction, 0, frac);
+        rig.render (0.5);
+        const double target = frac * (double) house->totalFrames.load();
+        CHECK (! d0.uiLoopActive.load(), "seek outside the loop kept the loop");
+        CHECK (d0.uiPosition.load() > target, "did not jump out of the loop (pos %.0f, target %.0f)", d0.uiPosition.load(), target);
+        std::printf ("  seek outside loop: loop off, playing from %.1f s\n", d0.uiPosition.load() / house->sampleRate);
+
+        // brake: slows to a stop in about the set time
+        engine.post (DeckCommand::SeekFraction, 0, 0.3);
+        engine.post (DeckCommand::Play, 0);
+        rig.render (0.3);
+        engine.post (DeckCommand::Brake, 0, 0.5);
+        rig.render (0.25);
+        CHECK (d0.uiPlaying.load() && d0.uiBraking.load(), "brake stopped too early");
+        rig.render (0.4);
+        CHECK (! d0.uiPlaying.load() && ! d0.uiBraking.load(), "brake did not stop the deck");
+
+        // backspin: runs backwards, then stops
+        engine.post (DeckCommand::Play, 0);
+        rig.render (0.3);
+        const double before = d0.uiPosition.load();
+        engine.post (DeckCommand::Backspin, 0, 0.6);
+        rig.render (0.3);
+        CHECK (d0.uiPosition.load() < before, "backspin did not go backwards");
+        rig.render (0.5);
+        CHECK (! d0.uiPlaying.load(), "backspin did not stop");
+        std::printf ("  brake and backspin: OK (backspin rewound %.2f s)\n", (before - d0.uiPosition.load()) / house->sampleRate);
+        engine.post (DeckCommand::Play, 0);
+        rig.render (0.2);
+    }
+
+    // =======================================================================
     std::printf ("\n== 5. Hot cues with quantize keep phase ==\n");
     {
         engine.post (DeckCommand::HotCueDown, 0, 0.0, 0);
@@ -528,6 +573,63 @@ int main (int argc, char** argv)
     }
 
     // =======================================================================
+    std::printf ("\n== 8b. Deck effects ==\n");
+    {
+        auto& fx = engine.getDeckFx (0).slots[0];
+        engine.post (DeckCommand::SeekFraction, 0, 0.2);
+        engine.post (DeckCommand::Play, 0);
+        rig.render (0.5);
+        const double dry = rms (rig.l);
+        for (int type = 0; type < numFxTypes; ++type)
+        {
+            fx.type = type;
+            fx.amount = 0.7f;
+            fx.beats = 0.5f;
+            engine.post (DeckCommand::SeekFraction, 0, 0.2);
+            fx.on = true;
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            rig.render (1.0);
+            const auto ms = juce::Time::getMillisecondCounterHiRes() - t0;
+            const double wet = rms (rig.l);
+            float peak = 0.0f; bool finite = true;
+            for (auto v : rig.l) { if (! std::isfinite (v)) finite = false; peak = juce::jmax (peak, std::abs (v)); }
+            double diff = 0.0;   // how much the effect changes the sound
+            fx.on = false;
+            for (int k = 0; k < 30 && (k < 5 || fx.tailActive.load()); ++k)
+                rig.render (0.5);    // let tails ring out (long echoes take a while)
+            std::printf ("  %-13s rms %.3f (dry %.3f) peak %.2f, %.2f ms per second rendered\n", fxName (type), wet, dry, peak, ms);
+            CHECK (finite, "%s produced non-finite samples", fxName (type));
+            CHECK (peak < 4.0f, "%s level ran away (peak %.2f)", fxName (type), peak);
+            if (type != (int) FxType::EchoOut)
+                CHECK (wet > dry * 0.15, "%s silenced the deck", fxName (type));
+            CHECK (! fx.tailActive.load(), "%s tail never ended", fxName (type));
+            juce::ignoreUnused (diff);
+        }
+
+        // echo keeps ringing after the deck stops; echo out mutes the dry signal
+        engine.post (DeckCommand::SeekFraction, 0, 0.2);
+        fx.type = (int) FxType::Echo; fx.amount = 0.6f; fx.beats = 0.5f; fx.on = true;
+        rig.render (1.0);
+        fx.on = false;
+        engine.post (DeckCommand::Pause, 0);
+        rig.render (0.3);
+        CHECK (rms (rig.l) > 0.01, "echo tail cut off when the effect was switched off");
+        rig.render (3.0);
+        engine.post (DeckCommand::SeekFraction, 0, 0.2);
+        engine.post (DeckCommand::Play, 0);
+        fx.type = (int) FxType::EchoOut; fx.beats = 1.0f; fx.on = true;
+        rig.render (2.0);
+        const double tail = rms (std::vector<float> (rig.l.begin() + (long) rig.l.size() * 3 / 4, rig.l.end()));
+        CHECK (tail < dry * 0.9, "echo out did not take out the dry signal");
+        fx.on = false;
+        rig.render (3.0);
+        CHECK (rms (rig.l) > dry * 0.5, "dry signal did not return after echo out");
+        std::printf ("  echo tail rings after stop; echo out fades the dry signal (%.3f vs %.3f)\n", tail, dry);
+        engine.post (DeckCommand::Pause, 0);
+        rig.tick();
+    }
+
+    // =======================================================================
     std::printf ("\n== 9. Performance: 8 decks, keylock on, all playing ==\n");
     {
         engine.setNumDecks (8);
@@ -567,6 +669,23 @@ int main (int argc, char** argv)
         }
         measureVarispeed();
         for (int i = 0; i < 8; ++i) engine.getDeck (i).setStretchAlgorithm (0);
+
+        // effects cost: every deck with three effects running (varispeed)
+        for (int i = 0; i < 8; ++i)
+        {
+            engine.getDeck (i).keyLock = false;
+            auto& f = engine.getDeckFx (i);
+            const int kinds[3] = { (int) FxType::Echo, (int) FxType::Reverb, (int) FxType::Phaser };
+            for (int k = 0; k < 3; ++k) { f.slots[(size_t) k].type = kinds[k]; f.slots[(size_t) k].on = true; }
+        }
+        rig.render (0.5);
+        {
+            const auto ta = juce::Time::getMillisecondCounterHiRes();
+            rig.render (5.0);
+            const auto msA = juce::Time::getMillisecondCounterHiRes() - ta;
+            std::printf ("  %-22s 8 decks x 3 effects:   %5.1f%% of one core (%.2f%% per deck)\n", "Echo+reverb+phaser", msA / 50.0, msA / 400.0);
+        }
+        for (int i = 0; i < 8; ++i) for (auto& sl : engine.getDeckFx (i).slots) sl.on = false;
         bool finite = true;
         for (auto v : rig.l) if (! std::isfinite (v)) { finite = false; break; }
         CHECK (finite, "non-finite output");

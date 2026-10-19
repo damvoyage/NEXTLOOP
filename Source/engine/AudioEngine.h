@@ -2,6 +2,7 @@
 
 #include "Deck.h"
 #include "Mixer.h"
+#include "Effects.h"
 #include "TrackLoader.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 
@@ -30,6 +31,7 @@ public:
     TrackLoader& getLoader() { return loader; }
     Mixer& getMixer() { return mixer; }
     Deck& getDeck (int i) { return *decks[(size_t) juce::jlimit (0, maxDecks - 1, i)]; }
+    FxControls& getDeckFx (int i) { return deckFx[(size_t) juce::jlimit (0, maxDecks - 1, i)]; }
 
     int getNumDecks() const { return numDecks.load(); }
     void setNumDecks (int n) { numDecks = juce::jlimit (1, maxDecks, n); }
@@ -84,6 +86,8 @@ private:
     Mixer mixer;
     std::array<std::unique_ptr<Deck>, maxDecks> decks;
     std::array<Track::Ptr, maxDecks> uiTracks;
+    std::array<FxControls, maxDecks> deckFx;
+    std::array<FxChain, maxDecks> fxChains;
     std::atomic<int> numDecks { 4 };
 
     // command queue (multi-producer via lock, single lock-free consumer)

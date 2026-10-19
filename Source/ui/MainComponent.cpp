@@ -79,19 +79,52 @@ MainComponent::MainComponent (AudioEngine& e, juce::PropertiesFile& p)
     {
         props.setValue ("dayMode", ! Theme::day);
         Theme::setDay (! Theme::day);
-        // rebuild after this click has finished being handled
-        juce::MessageManager::callAsync ([cb = onThemeChanged] { if (cb) cb(); });
+        rebuildLook();
     };
 
     addAndMakeVisible (monoButton);
     monoButton.setButtonText (Theme::mono ? "Colour" : "Mono");
-    monoButton.setTooltip (Theme::mono ? "Bring back the muted deck colours" : "Clinical look: greys only, no colour");
+    monoButton.setTooltip (Theme::mono ? "Bring back the deck colours" : "Clinical look: greys only, no colour");
     monoButton.onClick = [this]
     {
         props.setValue ("monoMode", ! Theme::mono);
         Theme::set (Theme::day, ! Theme::mono);
-        juce::MessageManager::callAsync ([cb = onThemeChanged] { if (cb) cb(); });
+        rebuildLook();
     };
+
+    addAndMakeVisible (skinButton);
+    skinButton.setButtonText (Theme::tech ? "Flat" : "Tech");
+    skinButton.setTooltip (Theme::tech ? "Switch to the quiet flat look" : "Switch to the 2000s hardware look: brushed metal, glossy keys, glowing LEDs");
+    skinButton.onClick = [this]
+    {
+        props.setValue ("techSkin", ! Theme::tech);
+        Theme::set (Theme::day, Theme::mono, ! Theme::tech);
+        rebuildLook();
+    };
+
+    addAndMakeVisible (viewLabel);
+    viewLabel.setFont (Theme::label (11.0f, true));
+    viewLabel.setColour (juce::Label::textColourId, Theme::textDim);
+    viewLabel.setJustificationType (juce::Justification::centredRight);
+    for (int i = 0; i < numSections; ++i)
+    {
+        const auto sec = (Section) i;
+        viewButtons[(size_t) i] = std::make_unique<juce::TextButton> (sectionName (sec));
+        auto& b = *viewButtons[(size_t) i];
+        addAndMakeVisible (b);
+        b.setTooltip (juce::String (sectionTip (sec)) + ". Hidden parts give their space to the waveforms");
+        b.getProperties().set ("fontScale", 1.05);
+        b.onClick = [this, sec]
+        {
+            deckSettings.view.toggle (sec);
+            saveViewOptions();
+            updateViewButtons();
+            resized();
+            repaint();
+        };
+    }
+    loadViewOptions();
+    loadEffects();
 
     browserHeight = props.getIntValue ("browserHeight", 230);
     {
@@ -119,7 +152,80 @@ void MainComponent::saveState()
     props.setValue ("numDecks", engine.getNumDecks());
     props.setValue ("browserHeight", browserHeight);
     saveDeckSettings();
+    saveViewOptions();
+    saveEffects();
     props.saveIfNeeded();
+}
+
+void MainComponent::rebuildLook()
+{
+    saveState();
+    // rebuild after this click has finished being handled
+    juce::MessageManager::callAsync ([cb = onThemeChanged] { if (cb) cb(); });
+}
+
+void MainComponent::loadViewOptions()
+{
+    auto& v = deckSettings.view;
+    for (int i = 0; i < numSections; ++i)
+    {
+        const juce::String k (sectionKey ((Section) i));
+        v.classic[(size_t) i] = props.getBoolValue ("view.classic." + k, v.classic[(size_t) i]);
+        v.strips[(size_t) i]  = props.getBoolValue ("view.strips." + k, v.strips[(size_t) i]);
+    }
+    // a one-off override (used for automated screenshots)
+    if (props.containsKey ("viewOverride"))
+    {
+        const auto on = juce::StringArray::fromTokens (props.getValue ("viewOverride"), ",", "");
+        for (int i = 0; i < numSections; ++i)
+            v.classic[(size_t) i] = v.strips[(size_t) i] = on.contains (sectionKey ((Section) i));
+        props.removeValue ("viewOverride");
+    }
+}
+
+void MainComponent::saveViewOptions()
+{
+    auto& v = deckSettings.view;
+    for (int i = 0; i < numSections; ++i)
+    {
+        const juce::String k (sectionKey ((Section) i));
+        props.setValue ("view.classic." + k, v.classic[(size_t) i]);
+        props.setValue ("view.strips." + k, v.strips[(size_t) i]);
+    }
+}
+
+void MainComponent::updateViewButtons()
+{
+    for (int i = 0; i < numSections; ++i)
+        viewButtons[(size_t) i]->setToggleState (deckSettings.view.shown ((Section) i), juce::dontSendNotification);
+}
+
+void MainComponent::loadEffects()
+{
+    // each deck remembers which effects sit in its slots
+    static const int defaults[fxSlotsPerDeck] = { (int) FxType::Echo, (int) FxType::Filter, (int) FxType::Reverb };
+    for (int d = 0; d < maxDecks; ++d)
+        for (int s = 0; s < fxSlotsPerDeck; ++s)
+        {
+            auto& sl = engine.getDeckFx (d).slots[(size_t) s];
+            const auto k = "fx." + juce::String (d) + "." + juce::String (s);
+            sl.type = juce::jlimit (0, numFxTypes - 1, props.getIntValue (k + ".type", defaults[s]));
+            sl.amount = (float) props.getDoubleValue (k + ".amount", 0.5);
+            sl.beats = (float) props.getDoubleValue (k + ".beats", s == 0 ? 0.75 : 1.0);
+        }
+}
+
+void MainComponent::saveEffects()
+{
+    for (int d = 0; d < maxDecks; ++d)
+        for (int s = 0; s < fxSlotsPerDeck; ++s)
+        {
+            auto& sl = engine.getDeckFx (d).slots[(size_t) s];
+            const auto k = "fx." + juce::String (d) + "." + juce::String (s);
+            props.setValue (k + ".type", sl.type.load());
+            props.setValue (k + ".amount", (double) sl.amount.load());
+            props.setValue (k + ".beats", (double) sl.beats.load());
+        }
 }
 
 void MainComponent::loadDeckSettings()
@@ -145,6 +251,8 @@ void MainComponent::setNumDecks (int n)
 {
     n = juce::jlimit (2, maxDecks, n);
     engine.setNumDecks (n);
+    deckSettings.view.stripLayout = n > 4;
+    updateViewButtons();
     for (int i = 0; i < 7; ++i)
         deckCountButtons[(size_t) i]->setToggleState (i + 2 == n, juce::dontSendNotification);
     resized();
@@ -227,7 +335,7 @@ void MainComponent::timerCallback()
     const bool strips = n > 4;
 
     for (int i = 0; i < 4; ++i)
-        if (! strips && i < n) rowWaves[(size_t) i]->refresh();
+        if (! strips && i < n && rowWaves[(size_t) i]->isVisible()) rowWaves[(size_t) i]->refresh();
     for (int i = 0; i < n; ++i)
         decks[(size_t) i]->repaintWaveforms();
 
@@ -272,46 +380,97 @@ void MainComponent::timerCallback()
 }
 
 // ---------------------------------------------------------------------------
+namespace
+{
+    constexpr int topBarH = 40, viewBarH = 28;
+}
+
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::base);
-    auto top = getLocalBounds().removeFromTop (40).reduced (12, 0);
+    auto bar = getLocalBounds().removeFromTop (topBarH + viewBarH);
+
+    if (Theme::tech)
+    {
+        // machined top bar with a lit logo
+        auto b = bar.toFloat();
+        g.setGradientFill (juce::ColourGradient (Theme::panelTop.brighter (0.05f), 0.0f, b.getY(), Theme::panelBottom.darker (0.2f), 0.0f, b.getBottom(), false));
+        g.fillRect (b);
+        g.setColour (juce::Colours::white.withAlpha (Theme::day ? 0.6f : 0.08f));
+        g.drawHorizontalLine (1, 0.0f, b.getRight());
+        g.setColour (juce::Colours::black.withAlpha (Theme::day ? 0.3f : 0.8f));
+        g.drawHorizontalLine (topBarH, 8.0f, b.getRight() - 8.0f);
+        g.drawHorizontalLine ((int) b.getBottom() - 1, 0.0f, b.getRight());
+        g.setColour (juce::Colours::white.withAlpha (Theme::day ? 0.5f : 0.05f));
+        g.drawHorizontalLine (topBarH + 1, 8.0f, b.getRight() - 8.0f);
+    }
+
+    auto logo = juce::Rectangle<int> (12, 0, 140, topBarH);
+    g.setFont (Theme::numbers (21.0f));
+    const int nextW = 58;
     g.setColour (Theme::text);
-    g.setFont (Theme::label (19.0f, true));
-    g.drawText ("NEXTLOOP", top, juce::Justification::centredLeft);
+    g.drawText ("NEXT", logo.withWidth (nextW), juce::Justification::centredLeft);
+    const auto accent = Theme::tech ? Theme::active : Theme::text;
+    if (Theme::tech)
+    {
+        g.setColour (accent.withAlpha (0.35f));
+        g.drawText ("LOOP", logo.withTrimmedLeft (nextW).translated (0, 1), juce::Justification::centredLeft);
+    }
+    g.setColour (accent);
+    g.drawText ("LOOP", logo.withTrimmedLeft (nextW), juce::Justification::centredLeft);
 }
 
 void MainComponent::resized()
 {
     auto r = getLocalBounds();
-    auto top = r.removeFromTop (40).reduced (10, 6);
-    top.removeFromLeft (110);
+    auto top = r.removeFromTop (topBarH).reduced (10, 6);
+    top.removeFromLeft (140);
     settingsButton.setBounds (top.removeFromRight (150));
     top.removeFromRight (6);
-    themeButton.setBounds (top.removeFromRight (64));
-    top.removeFromRight (6);
-    monoButton.setBounds (top.removeFromRight (70));
+    themeButton.setBounds (top.removeFromRight (60));
+    top.removeFromRight (4);
+    monoButton.setBounds (top.removeFromRight (64));
+    top.removeFromRight (4);
+    skinButton.setBounds (top.removeFromRight (56));
     top.removeFromRight (10);
-    cpuLabel.setBounds (top.removeFromRight (juce::jmin (420, top.getWidth() / 3)));
     deckCountLabel.setBounds (top.removeFromLeft (50));
     top.removeFromLeft (6);
     for (auto& b : deckCountButtons) { b->setBounds (top.removeFromLeft (28)); top.removeFromLeft (3); }
     top.removeFromLeft (10);
     masterLabel.setBounds (top);
 
+    // the "show" row: every section can be switched off
+    auto vb = r.removeFromTop (viewBarH).reduced (10, 3);
+    cpuLabel.setBounds (vb.removeFromRight (juce::jmin (430, vb.getWidth() / 3)));
+    viewLabel.setBounds (vb.removeFromLeft (42));
+    vb.removeFromLeft (6);
+    const int bw = juce::jlimit (52, 80, (vb.getWidth() - 3 * numSections) / numSections);
+    for (auto& b : viewButtons) { b->setBounds (vb.removeFromLeft (bw)); vb.removeFromLeft (3); }
+
+    r.removeFromTop (6);
     r.reduce (8, 0);
-    auto lib = r.removeFromBottom (juce::jlimit (90, juce::jmax (100, getHeight() - 360), browserHeight));
-    browser.setBounds (lib.withTrimmedBottom (8));
-    divider.setBounds (r.removeFromBottom (10));
+    const auto& view = deckSettings.view;
+
+    const bool showBrowser = view.shown (Section::Browser);
+    browser.setVisible (showBrowser);
+    divider.setVisible (showBrowser);
+    if (showBrowser)
+    {
+        auto lib = r.removeFromBottom (juce::jlimit (90, juce::jmax (100, getHeight() - 360), browserHeight));
+        browser.setBounds (lib.withTrimmedBottom (8));
+        divider.setBounds (r.removeFromBottom (10));
+    }
+    else
+        r.removeFromBottom (8);
 
     const int n = engine.getNumDecks();
+    const bool mixer = view.shown (Section::Mixer);
     for (int i = 0; i < maxDecks; ++i)
     {
         decks[(size_t) i]->setVisible (i < n);
-        channels[(size_t) i]->setVisible (i < n);
+        channels[(size_t) i]->setVisible (i < n && mixer);
     }
-    for (int i = 0; i < 4; ++i)
-        rowWaves[(size_t) i]->setVisible (n <= 4 && i < n);
+    masterSection.setVisible (mixer);
 
     if (n <= 4) layoutClassic (r, n);
     else layoutStrips (r, n);
@@ -319,35 +478,69 @@ void MainComponent::resized()
 
 void MainComponent::layoutClassic (juce::Rectangle<int> area, int n)
 {
-    // stacked scrolling waveforms across the full width
-    const int waveH = juce::jlimit (60, 130, (int) (area.getHeight() * (n <= 2 ? 0.34f : 0.36f)) / n);
-    for (int i = 0; i < n; ++i)
-    {
-        rowWaves[(size_t) i]->setBounds (area.removeFromTop (waveH).withTrimmedBottom (3));
-    }
-    area.removeFromTop (5);
-
-    // mixer in the centre
-    const int chW = 82;
-    const int mixW = n * (chW + 4) + 150;
-    auto mixer = area.withSizeKeepingCentre (mixW, area.getHeight());
-    auto leftCol = area.withRight (mixer.getX() - 6);
-    auto rightCol = area.withLeft (mixer.getRight() + 6);
+    const auto& view = deckSettings.view;
+    const bool mixer = view.shown (Section::Mixer);
+    const bool waves = view.shown (Section::Waves);
 
     for (int i = 0; i < maxDecks; ++i) decks[(size_t) i]->setStripMode (false);
 
-    auto m = mixer;
-    masterSection.setBounds (m.removeFromRight (146));
-    m.removeFromRight (4);
-    // club-mixer channel order: 3 1 2 4
-    std::vector<int> chOrder;
-    if (n == 2) chOrder = { 0, 1 };
-    else if (n == 3) chOrder = { 2, 0, 1 };
-    else chOrder = { 2, 0, 1, 3 };
-    for (int idx : chOrder)
+    const int chW = 82;
+    const int mixW = mixer ? n * (chW + 4) + 150 : 0;
+    const int colW = mixer ? (area.getWidth() - mixW - 12) / 2 : (area.getWidth() - 6) / 2;
+    const int stacked = n <= 2 ? 1 : 2;
+
+    // decks take the height their visible sections need; the waveforms get the rest
+    int deckH = decks[0]->preferredWideHeight (colW);
+    int deckArea = stacked * deckH + (stacked - 1) * 5;
+    if (mixer) deckArea = juce::jmax (deckArea, 330);
+
+    int waveArea = 0;
+    if (waves)
     {
-        channels[(size_t) idx]->setBounds (m.removeFromLeft (chW));
-        m.removeFromLeft (4);
+        waveArea = area.getHeight() - deckArea - 5;
+        const int minWave = n * 44;
+        const int maxWave = n * 320;
+        if (waveArea < minWave) waveArea = juce::jmin (minWave, area.getHeight() / 2);
+        if (waveArea > maxWave) waveArea = maxWave;
+    }
+    for (int i = 0; i < 4; ++i)
+        rowWaves[(size_t) i]->setVisible (waves && i < n);
+
+    if (waves)
+    {
+        auto wa = area.removeFromTop (waveArea);
+        const int each = wa.getHeight() / n;
+        for (int i = 0; i < n; ++i)
+            rowWaves[(size_t) i]->setBounds (wa.removeFromTop (each).withTrimmedBottom (3));
+        area.removeFromTop (5);
+    }
+
+    juce::Rectangle<int> leftCol, rightCol;
+    if (mixer)
+    {
+        auto mixArea = area.withSizeKeepingCentre (mixW, area.getHeight());
+        leftCol = area.withRight (mixArea.getX() - 6);
+        rightCol = area.withLeft (mixArea.getRight() + 6);
+
+        auto m = mixArea;
+        masterSection.setBounds (m.removeFromRight (146));
+        m.removeFromRight (4);
+        // club-mixer channel order: 3 1 2 4
+        std::vector<int> chOrder;
+        if (n == 2) chOrder = { 0, 1 };
+        else if (n == 3) chOrder = { 2, 0, 1 };
+        else chOrder = { 2, 0, 1, 3 };
+        for (int idx : chOrder)
+        {
+            channels[(size_t) idx]->setBounds (m.removeFromLeft (chW));
+            m.removeFromLeft (4);
+        }
+    }
+    else
+    {
+        leftCol = area.removeFromLeft ((area.getWidth() - 6) / 2);
+        area.removeFromLeft (6);
+        rightCol = area;
     }
 
     if (n <= 2)
@@ -370,21 +563,31 @@ void MainComponent::layoutClassic (juce::Rectangle<int> area, int n)
 
 void MainComponent::layoutStrips (juce::Rectangle<int> area, int n)
 {
-    masterSection.setBounds (area.removeFromRight (150).withTrimmedTop (area.getHeight() - juce::jmin (area.getHeight(), 300)));
-    area.removeFromRight (5);
+    const bool mixer = deckSettings.view.shown (Section::Mixer);
+    for (int i = 0; i < 4; ++i) rowWaves[(size_t) i]->setVisible (false);
+
+    if (mixer)
+    {
+        masterSection.setBounds (area.removeFromRight (150).withTrimmedTop (area.getHeight() - juce::jmin (area.getHeight(), 300)));
+        area.removeFromRight (5);
+    }
 
     const int gap = 5;
     const int stripW = (area.getWidth() - gap * (n - 1)) / n;
-    const int channelH = juce::jlimit (150, 210, area.getHeight() / 4);
+    const int channelH = juce::jlimit (140, 190, area.getHeight() / 5);
     for (int i = 0; i < n; ++i)
     {
         auto s = area.removeFromLeft (stripW);
         area.removeFromLeft (gap);
         decks[(size_t) i]->setStripMode (true);
-        channels[(size_t) i]->setBounds (s.removeFromBottom (channelH));
-        s.removeFromBottom (4);
+        if (mixer)
+        {
+            channels[(size_t) i]->setBounds (s.removeFromBottom (channelH));
+            s.removeFromBottom (4);
+        }
         decks[(size_t) i]->setBounds (s);
     }
 }
+
 
 } // namespace loopdeck

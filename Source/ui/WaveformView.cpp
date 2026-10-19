@@ -3,6 +3,26 @@
 namespace loopdeck
 {
 
+// Waveforms sit on a dark screen in the tech skin (day and night), so they use their own ink.
+static juce::Colour waveInk()    { return Theme::tech ? juce::Colour (0xffe6eef6) : Theme::text; }
+static juce::Colour waveInkDim() { return Theme::tech ? juce::Colour (0xff8f9cab) : Theme::textDim; }
+static juce::Colour waveGround() { return Theme::tech ? juce::Colour (0xff07090c) : Theme::base; }
+
+/** Gradient backgrounds are drawn once per size / look and blitted each frame. */
+static void drawCachedBackground (juce::Graphics& g, juce::Image& img, int& key, juce::Component& c, bool vertical)
+{
+    const int w = juce::jmax (1, c.getWidth()), h = juce::jmax (1, c.getHeight());
+    if (! img.isValid() || img.getWidth() != w || img.getHeight() != h || key != Theme::key() * 2 + (vertical ? 1 : 0))
+    {
+        img = juce::Image (juce::Image::RGB, w, h, false);
+        juce::Graphics ig (img);
+        Theme::drawWaveBackground (ig, { 0.0f, 0.0f, (float) w, (float) h }, vertical);
+        key = Theme::key() * 2 + (vertical ? 1 : 0);
+    }
+    g.setOpacity (1.0f);
+    g.drawImageAt (img, 0, 0);
+}
+
 static void loadFromDragDescription (const juce::var& description, int deck, const LoadFileFn& fn)
 {
     const auto path = description.toString();
@@ -76,14 +96,14 @@ double ScrollingWaveform::framesPerPixel (const Track& t) const
 void ScrollingWaveform::paint (juce::Graphics& g)
 {
     const auto hue = Theme::deck (deck);
-    g.fillAll (Theme::base);
+    drawCachedBackground (g, background, backgroundKey, *this, vertical);
 
     auto track = engine.getTrack (deck);
     const float w = (float) getWidth(), h = (float) getHeight();
 
     if (track == nullptr)
     {
-        g.setColour (Theme::textDim);
+        g.setColour (waveInkDim());
         g.setFont (Theme::label (13.0f));
         g.drawFittedText ("Drop a track here to load deck " + juce::String (deck + 1),
                           getLocalBounds().reduced (6), juce::Justification::centred, 3);
@@ -142,7 +162,7 @@ void ScrollingWaveform::paint (juce::Graphics& g)
     if (! t.decodeComplete.load())
     {
         const float p = pixOf ((double) t.framesReady.load());
-        g.setColour (Theme::textDim.withAlpha (0.25f));
+        g.setColour (waveInkDim().withAlpha (0.25f));
         if (vertical) { if (p > 0) g.fillRect (0.0f, 0.0f, w, p); }
         else if (p < w) g.fillRect (p, 0.0f, w - p, h);
     }
@@ -163,14 +183,14 @@ void ScrollingWaveform::paint (juce::Graphics& g)
             const bool isBar = ((bi % bpb) + bpb) % bpb == 0;
             if (! isBar && pxPerBeat < 6.0) continue;
             const float p = pixOf (t.grid.frameOfBeat (b, t.sampleRate));
-            g.setColour (isBar ? Theme::text.withAlpha (0.55f) : Theme::text.withAlpha (0.16f));
+            g.setColour (isBar ? waveInk().withAlpha (0.55f) : waveInk().withAlpha (0.16f));
             if (vertical) g.fillRect (0.0f, p, w, isBar ? 1.5f : 1.0f);
             else          g.fillRect (p, 0.0f, isBar ? 1.5f : 1.0f, h);
 
             if (isBar && pxPerBeat * bpb > 40.0)
             {
                 const auto barNum = juce::String (bi / bpb + (bi >= 0 ? 1 : 0));
-                g.setColour (Theme::textDim);
+                g.setColour (waveInkDim());
                 if (vertical) g.drawText (barNum, 2, (int) p - 12, 30, 12, juce::Justification::bottomLeft);
                 else          g.drawText (barNum, (int) p + 3, 1, 30, 11, juce::Justification::topLeft);
             }
@@ -195,7 +215,7 @@ void ScrollingWaveform::paint (juce::Graphics& g)
         juce::Path tri;
         if (vertical) tri.addTriangle (0, p - 5, 0, p + 5, 7, p);
         else          tri.addTriangle (p - 5, h, p + 5, h, p, h - 7);
-        g.setColour (Theme::text);
+        g.setColour (waveInk());
         g.fillPath (tri);
     }
     g.setFont (Theme::label (10.0f, true));
@@ -210,14 +230,14 @@ void ScrollingWaveform::paint (juce::Graphics& g)
         {
             g.fillRect (0.0f, p, w, 1.0f);
             g.fillRoundedRectangle (w - 15.0f, p - 7.0f, 14.0f, 14.0f, 2.0f);
-            g.setColour (Theme::base);
+            g.setColour (waveGround());
             g.drawText (juce::String (i + 1), (int) w - 15, (int) p - 7, 14, 14, juce::Justification::centred);
         }
         else
         {
             g.fillRect (p, 0.0f, 1.0f, h);
             g.fillRoundedRectangle (p, 0.0f, 14.0f, 14.0f, 2.0f);
-            g.setColour (Theme::base);
+            g.setColour (waveGround());
             g.drawText (juce::String (i + 1), (int) p, 0, 14, 14, juce::Justification::centred);
         }
     }
@@ -226,13 +246,13 @@ void ScrollingWaveform::paint (juce::Graphics& g)
     if (d.uiSlipActive.load())
     {
         const float p = pixOf (d.uiSlipPosition.load());
-        g.setColour (Theme::text.withAlpha (0.45f));
+        g.setColour (waveInk().withAlpha (0.45f));
         if (vertical) { for (float x = 0; x < w; x += 6) g.fillRect (x, p, 3.0f, 1.0f); }
         else          { for (float y = 0; y < h; y += 6) g.fillRect (p, y, 1.0f, 3.0f); }
     }
 
     // --- playhead -------------------------------------------------------------
-    g.setColour (Theme::text);
+    g.setColour (waveInk());
     if (vertical) g.fillRect (0.0f, ph - 1.0f, w, 2.0f);
     else          g.fillRect (ph - 1.0f, 0.0f, 2.0f, h);
 
@@ -389,11 +409,11 @@ void OverviewWaveform::rebuildImage (const Track& t)
 
 void OverviewWaveform::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::base);
+    drawCachedBackground (g, background, backgroundKey, *this, false);
     auto track = engine.getTrack (deck);
     if (track == nullptr)
     {
-        g.setColour (Theme::line);
+        g.setColour (waveInkDim());
         g.drawHorizontalLine (getHeight() / 2, 4.0f, (float) getWidth() - 4.0f);
         return;
     }
@@ -417,7 +437,7 @@ void OverviewWaveform::paint (juce::Graphics& g)
     }
 
     const float px = xOf (d.uiPosition.load());
-    g.setColour (Theme::base.withAlpha (0.5f));
+    g.setColour (waveGround().withAlpha (0.5f));
     g.fillRect (0.0f, 0.0f, px, h);
 
     for (int i = 0; i < numHotCues; ++i)
@@ -427,14 +447,14 @@ void OverviewWaveform::paint (juce::Graphics& g)
         g.setColour (hue);
         g.fillRect (xOf (hc), h - 5.0f, 2.0f, 5.0f);
     }
-    g.setColour (Theme::text);
+    g.setColour (waveInk());
     g.fillRect (xOf (t.cuePoint.load()), 0.0f, 1.0f, 4.0f);
 
     // end-of-track warning: last 30 s flash the playhead red
     const double remaining = (total - d.uiPosition.load()) / t.sampleRate;
     const bool warn = d.uiPlaying.load() && remaining < 30.0 && t.decodeComplete.load()
                       && (juce::Time::getMillisecondCounter() / 400) % 2 == 0;
-    g.setColour (warn ? Theme::warn : Theme::text);
+    g.setColour (warn ? Theme::warn : waveInk());
     g.fillRect (px - 1.0f, 0.0f, 2.0f, h);
 }
 

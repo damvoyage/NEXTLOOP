@@ -52,6 +52,8 @@ struct DeckCommand
         SyncOn, SyncOff,
         ScratchBegin, ScratchMove /* a = target frame */, ScratchEnd,
         BeatJump,        // a = beats (+/-)
+        Brake,           // a = seconds: turntable power-off slowdown, then pause
+        Backspin,        // a = seconds: record spun backwards, then pause
     };
 
     Type type = Play;
@@ -118,6 +120,7 @@ public:
     std::atomic<double> uiSlipPosition { 0.0 };
     std::atomic<double> uiBeatPhase { 0.0 };    // 0..1 within the beat
     std::atomic<float> uiPhaseError { 0.0f };   // beats, vs master (for display)
+    std::atomic<bool> uiBraking { false };      // brake or backspin running
 
     const int deckIndex;
 
@@ -174,6 +177,12 @@ private:
     static constexpr int xfadeLength = 96;
     int xfadeRemaining = 0;
     double xfadeOldPos = 0.0;
+
+    // brake / backspin
+    bool braking = false, backspinning = false;
+    double brakeFactor = 1.0, brakeStep = 0.0;      // brake: rate multiplier ramp
+    double spinElapsed = 0.0, spinLength = 1.0;     // backspin: seconds
+    void exitLoopIfOutside (double target);
 
     // sync
     double syncCorrection = 0.0;

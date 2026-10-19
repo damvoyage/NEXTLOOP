@@ -56,6 +56,12 @@ private:
     void layoutStrips (juce::Rectangle<int> area, int n);
     void loadDeckSettings();
     void saveDeckSettings();
+    void loadViewOptions();
+    void saveViewOptions();
+    void updateViewButtons();
+    void loadEffects();
+    void saveEffects();
+    void rebuildLook();
 
     AudioEngine& engine;
     juce::PropertiesFile& props;
@@ -72,7 +78,9 @@ private:
 
     juce::Label deckCountLabel { {}, "Decks" }, masterLabel, cpuLabel;
     std::array<std::unique_ptr<juce::TextButton>, 7> deckCountButtons;   // 2..8
-    juce::TextButton settingsButton { "Audio and settings" }, themeButton, monoButton;
+    juce::TextButton settingsButton { "Audio and settings" }, themeButton, monoButton, skinButton;
+    juce::Label viewLabel { {}, "SHOW" };
+    std::array<std::unique_ptr<juce::TextButton>, numSections> viewButtons;
 
     int browserHeight = 230;
     int frameCounter = 0;

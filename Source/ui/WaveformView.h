@@ -61,6 +61,8 @@ private:
     const Track* cacheTrack = nullptr;
     bool cacheVertical = false;
     int cacheTheme = -1;
+    juce::Image background;
+    int backgroundKey = -1;
 };
 
 /** Whole-track overview with position, cues and loop. Click/drag to seek. */
@@ -92,7 +94,8 @@ private:
     AudioEngine& engine;
     const int deck;
     LoadFileFn loadFile;
-    juce::Image image;
+    juce::Image image, background;
+    int backgroundKey = -1;
     juce::int64 cachedBins = -1;
     const Track* cachedTrack = nullptr;
     juce::uint64 lastSignature = 0;

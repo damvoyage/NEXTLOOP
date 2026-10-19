@@ -11,14 +11,18 @@ namespace Theme
     // Mostly greys; colour is kept for what needs identifying at a glance.
     inline bool day = false;
     inline bool mono = false;   // clinical look: neutral greys only, no hues anywhere
+    inline bool tech = true;    // 2000s hardware skin: brushed panels, glossy keys, glowing LEDs
     inline juce::Colour base, panel, raised, line, text, textDim, active,
-                        waveLow, waveMid, waveHigh, warn, meterOk, meterHot;
+                        waveLow, waveMid, waveHigh, warn, meterOk, meterHot,
+                        panelTop, panelBottom, lcd, lcdText;
 
     /** Changes when any part of the look changes (used to invalidate cached drawings). */
-    inline int key() { return (day ? 1 : 0) + (mono ? 2 : 0); }
+    inline int key() { return (day ? 1 : 0) + (mono ? 2 : 0) + (tech ? 4 : 0); }
 
-    /** Day/night and colour/mono are independent, giving four looks. */
-    inline void set (bool isDay, bool isMono)
+    void applyTech();   // LookAndFeel.cpp: overrides the panel greys for the tech skin
+
+    /** The flat palettes (muted nature tones, or clinical greys). */
+    inline void setFlat (bool isDay, bool isMono)
     {
         day = isDay;
         mono = isMono;
@@ -79,19 +83,33 @@ namespace Theme
         }
     }
 
+    /** Day/night, colour/mono and tech/flat are independent. */
+    inline void set (bool isDay, bool isMono, bool isTech)
+    {
+        tech = isTech;
+        setFlat (isDay, isMono);
+        panelTop = panelBottom = panel;
+        lcd = base;
+        lcdText = text;
+        if (tech) applyTech();
+    }
+    inline void set (bool isDay, bool isMono) { set (isDay, isMono, tech); }
+
     inline void setDay (bool isDay) { set (isDay, mono); }
 
     /** Each deck owns a muted nature hue (ocean, ember, forest, blood orange, heather, moss,
         sand, lake). In mono every deck uses the same neutral; numbers identify decks. */
     inline juce::Colour deck (int index)
     {
-        if (mono) return active;
+        if (mono) return tech ? (day ? juce::Colour (0xff3a3a3a) : juce::Colour (0xffd2d2d2)) : active;
         static const juce::uint32 night[] = { 0xff7096ab, 0xffc99a63, 0xff819c77, 0xffbb7563,
                                               0xff9a8db0, 0xffa6a573, 0xffbda786, 0xff73a19c };
         static const juce::uint32 dayHues[] = { 0xff52798f, 0xffaf7d43, 0xff607f57, 0xffa5584a,
                                                 0xff7b6d96, 0xff83824d, 0xff9a8159, 0xff4f8580 };
         const auto i = (size_t) ((index % 8 + 8) % 8);
-        return juce::Colour (day ? dayHues[i] : night[i]);
+        const auto c = juce::Colour (day ? dayHues[i] : night[i]);
+        // the tech skin lights its keys a little more vividly
+        return tech ? c.withMultipliedSaturation (day ? 1.15f : 1.3f).brighter (day ? 0.0f : 0.08f) : c;
     }
 
     inline juce::Font numbers (float height)
@@ -113,6 +131,16 @@ namespace Theme
     }
 }
 
+namespace Theme
+{
+    /** Panel body: brushed gradient with a bevel in the tech skin, flat otherwise. */
+    void drawPanel (juce::Graphics&, juce::Rectangle<float>, float radius = 4.0f);
+    /** Recessed display window (LCD) for numbers. */
+    void drawInset (juce::Graphics&, juce::Rectangle<float>, float radius = 3.0f);
+    /** Background behind waveforms. */
+    void drawWaveBackground (juce::Graphics&, juce::Rectangle<float>, bool vertical);
+}
+
 class NEXTLOOPLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
@@ -128,6 +156,8 @@ public:
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
     juce::Font getLabelFont (juce::Label&) override;
     void drawComboBox (juce::Graphics&, int w, int h, bool down, int bx, int by, int bw, int bh, juce::ComboBox&) override;
+    void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
+    juce::Font getComboBoxFont (juce::ComboBox&) override;
 };
 
 } // namespace loopdeck

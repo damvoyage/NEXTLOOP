@@ -20,7 +20,7 @@ public:
         o.osxLibrarySubFolder = "Application Support";
         properties.setStorageParameters (o);
         auto& props = *properties.getUserSettings();
-        Theme::set (props.getBoolValue ("dayMode", false), props.getBoolValue ("monoMode", false));
+        Theme::set (props.getBoolValue ("dayMode", false), props.getBoolValue ("monoMode", false), props.getBoolValue ("techSkin", true));
 
         engine = std::make_unique<AudioEngine>();
 
@@ -122,6 +122,15 @@ private:
         if (args.contains ("--day")) { Theme::setDay (true); args.removeString ("--day"); }
         if (args.contains ("--night")) { Theme::setDay (false); args.removeString ("--night"); }
         if (args.contains ("--mono")) { Theme::set (Theme::day, true); args.removeString ("--mono"); }
+        if (args.contains ("--flat")) { Theme::set (Theme::day, Theme::mono, false); args.removeString ("--flat"); }
+        // --view=a,b,c sets which sections are shown (for screenshots)
+        for (auto& a : args)
+            if (a.startsWith ("--view="))
+            {
+                const auto shown = juce::StringArray::fromTokens (a.fromFirstOccurrenceOf ("=", false, false), ",", "");
+                props.setValue ("viewOverride", shown.joinIntoString (","));
+            }
+        for (int i = args.size(); --i >= 0;) if (args[i].startsWith ("--view=")) args.remove (i);
         const bool withSettings = args.contains ("--with-settings");
         const bool bench = args.contains ("--bench");
         args.removeString ("--bench");
@@ -205,7 +214,7 @@ private:
             std::function<void (juce::Component*)> collect = [&] (juce::Component* c)
             {
                 if (c->isShowing() || c->isVisible())
-                    if (dynamic_cast<ScrollingWaveform*> (c) != nullptr || dynamic_cast<OverviewWaveform*> (c) != nullptr)
+                    if (dynamic_cast<ScrollingWaveform*> (c) != nullptr || dynamic_cast<OverviewWaveform*> (c) != nullptr || dynamic_cast<Platter*> (c) != nullptr)
                         if (c->isVisible() && c->getWidth() > 0) waves.add (c);
                 for (auto* ch : c->getChildren()) collect (ch);
             };
@@ -226,7 +235,7 @@ private:
                 }
             }
             const auto wms = (juce::Time::getMillisecondCounterHiRes() - t1) / frames;
-            std::printf ("waveforms only (%d views): %.2f ms per frame (%.1f%% of one core at 60 fps, %.1f%% at 30 fps)\n",
+            std::printf ("waveforms + platters only (%d views): %.2f ms per frame (%.1f%% of one core at 60 fps, %.1f%% at 30 fps)\n",
                          waves.size(), wms, wms * 60.0 / 10.0, wms * 30.0 / 10.0);
         }
         auto image = comp->createComponentSnapshot (comp->getLocalBounds(), true, 1.0f);

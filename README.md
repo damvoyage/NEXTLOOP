@@ -4,7 +4,7 @@ A DJ and loop-production app for Windows and macOS. Two to eight decks, beat syn
 
 ![Night look](docs/NEXTLOOP-night.png)
 
-This is **phase 1** of the build: the audio engine, decks, loops, sync, mixer and a folder browser. FX, granular, the full library, MIDI mapping and the loop-production tools come in the next phases (see the roadmap below).
+Built so far: the audio engine, decks, loops, sync, mixer, deck effects (with granular, brake and backspin), spinning platters and a folder browser. The full library, MIDI mapping and the loop-production tools come next (see the roadmap below).
 
 ## Getting the app
 
@@ -48,7 +48,13 @@ The first load decodes and analyses the file; after that it loads instantly from
 
 **Large files.** Decoded audio lives in a memory-mapped cache on disk, not in RAM, so hour-long mixes and 192 kHz files are fine. A track is playable as soon as its first seconds are decoded. Cache size is set in settings (20 GB by default). Beat grids and cue points are kept even when old audio is cleared from the cache.
 
-**Decks.** The buttons at the top switch between 2 and 8 decks. Up to 4 decks use stacked horizontal waveforms with a central mixer. At 5 to 8, each deck becomes a short vertical strip with its own vertical waveform and channel controls.
+**Decks.** The buttons at the top switch between 2 and 8 decks. Up to 4 decks use stacked horizontal waveforms with a central mixer. At 5 to 8, each deck becomes a vertical strip with its own vertical waveform and tempo fader beside it.
+
+**Show / hide.** The *SHOW* row under the top bar switches every part of the screen on or off: Browser, Mixer, Waves, Platter, Cues, Loops, Loop pads, Loop edit, FX, Tempo and Grid. Whatever you hide gives its space to the waveforms, so with the browser and the button sections off the waveforms fill most of the window. 1–4 decks and 5–8 decks remember their own choices.
+
+**Platters.** Each deck has a spinning record that turns at 33⅓ rpm with the audio: it slows with the tempo fader, stops when paused and spins backwards on a backspin. The ring round the edge shows how far through the track you are, with hot cues and the active loop marked. Drag it round to scratch.
+
+**Clicking the overview.** Click anywhere on the thin whole-track waveform to jump there. If a loop is playing and you click outside it, the loop ends and playback carries on from where you clicked. Clicking inside the loop keeps looping.
 
 **Loops.**
 - **Lengths:** *Bars* / *Beats* switches the unit. `<` and `>` step through 1/32 beat up to 16 beats, or 1 to 32 bars plus 48 and 64. Every whole bar count is included: 5, 7, 12, 13 and so on.
@@ -57,6 +63,25 @@ The first load decodes and analyses the file; after that it loads instantly from
 - **Roll:** with *Roll* on, the quick buttons become momentary loop rolls. The track keeps moving underneath and resumes where it would have been when you let go.
 - **In / Out:** set a manual loop. *Exit* / *Reloop* leaves the loop or re-enters the last one. *1/2* and *x2* halve and double the loop. *Move* shifts it by its own length; hold shift to shift by one beat.
 - **Fine adjust:** *In < >* and *Out < >* nudge the loop points by the chosen step (1 sample, 1 ms, 10 ms, 1/64 or 1/16 beat). Nudges of 1 ms and larger snap to the nearest zero crossing so loops don't click.
+
+**Effects.** Each deck has three effect slots. Click a slot's name to switch it on; click the arrow (or right-click) to choose the effect. The knob sets the amount and `<` `>` set the length in beats, synced to the deck's tempo.
+
+| Effect | What it does |
+|---|---|
+| Echo | Tempo echo; the amount sets level and feedback |
+| Ping pong | Stereo delay bouncing left and right, darker on each repeat |
+| Reverb | Room to hall; longer lengths give bigger rooms |
+| Flanger, Phaser | Classic sweeps; the length sets the sweep speed |
+| Filter sweep | Resonant filter swept up and down in time |
+| Gate | Beat-synced trance gate |
+| Bitcrush | Bit and sample-rate reduction |
+| Granular | A cloud of grains taken from the last few beats; higher amounts add octave and reverse grains |
+| Echo out | Captures one length of audio into an echo and fades the track out under it |
+| Stutter | Captures a slice and repeats it |
+
+Echo, ping pong, reverb and echo out ring out naturally when switched off, like a trailing stop; the slot's outline glows while the tail is still sounding. Each deck remembers its effect choices.
+
+**Brake and backspin.** *Brake* slows the deck to a stop like a turntable switched off (about a second; hold shift for three). Click it again or press Play to cancel. *Spin* throws the record backwards and stops.
 
 **Varispeed and key lock.** Each deck's key lock button switches between two ways of changing tempo:
 - **Varispeed:** pitch moves with the tempo, like speeding up a record.
@@ -83,7 +108,10 @@ CPU figures are a share of one core on the test machine, with key lock on.
 - **Screen refresh:** set it to 30 frames per second in settings to halve the drawing cost.
 - **Idle decks:** silent channels can't trigger the slow "denormal" maths that makes some audio apps spike when a track ends.
 
-**Looks.** Two switches at the top give four looks. *Day* / *Night* picks a white or dark interface. *Mono* / *Colour* switches between a clinical greys-only look (decks told apart by number) and muted nature colours that mark each deck and its state. Both use greys for the interface itself.
+**Looks.** Three switches at the top:
+- *Tech* / *Flat*: Tech (the default) is a 2000s hardware look with brushed-metal panels, glossy keys, glowing blue LEDs, chrome fader caps, segmented LED meters and dark waveform screens. Flat is the quiet look with plain panels.
+- *Day* / *Night*: Day is brushed aluminium in Tech and white in Flat; Night is gunmetal / dark grey.
+- *Mono* / *Colour*: Mono is clinical, greys only (decks told apart by number). Colour gives each deck a muted nature colour (ocean, ember, forest, blood orange…).
 
 **Sync.**
 - **Sync** locks tempo and beat phase to the master deck.
@@ -101,7 +129,7 @@ CPU figures are a share of one core on the test machine, with key lock on.
 - **Fixing the downbeat:** *Grid < >* shifts the grid by 5 ms (1 ms with shift). *Set 1* makes the playhead the first beat of a bar.
 - **Saving:** edits are saved with the track.
 
-**Scratch and nudge.** Drag any scrolling waveform to scratch; it also scrubs while stopped. The *-* and *+* buttons bend the tempo while held. Mouse wheel over a waveform zooms.
+**Scratch and nudge.** Drag any scrolling waveform or platter to scratch; it also scrubs while stopped. The *-* and *+* buttons bend the tempo while held. Mouse wheel over a waveform zooms.
 
 **Keyboard.** Keys 1–8 play or pause that deck.
 
@@ -117,6 +145,9 @@ CPU figures are a share of one core on the test machine, with key lock on.
 - **Key lock:** a 440 Hz tone at +8 % tempo stays at 440 Hz on every stretch sound (435 Hz on the deliberately warbly vintage sampler); with varispeed it rises to 475 Hz. A key shift of -3 semitones lands on 370 Hz.
 - **Full tempo range:** at 50 %, 150 % and 200 % the deck plays at exactly that speed, with pitch following in varispeed (220, 660, 880 Hz) and holding at 440 Hz with key lock. At 0 % it is silent.
 - **Stretched audio stays on the grid:** on a click track, stretched output lands within 1.7 ms of the beat grid on Light, 0.35 ms on Studio, and within 2 ms on the vintage sounds.
+- **Loop exit:** seeking inside a loop keeps it; clicking outside ends it and plays on from the click.
+- **Effects:** every effect stays finite and level-safe, tails end on their own, echo keeps ringing after the deck stops and echo out removes the dry signal. Three effects on each of eight decks cost about 7 % of one core.
+- **Brake and backspin:** brake stops the deck in the set time; backspin runs backwards, then stops.
 - **Large files:** a 60-minute WAV is playable 11 ms after loading and fully analysed in under 8 seconds.
 - **Load:** eight decks playing use about 2 % of one CPU core in varispeed and 6.5 % with Light key lock.
 - **Both framework versions:** the tests pass on JUCE 9 (Windows 10/11 and Mac builds) and JUCE 7 (Windows 7 builds).
@@ -157,10 +188,8 @@ python3 Tests/make_test_audio.py testaudio
 
 ## Roadmap
 
-1. **Core (this build):** engine, 2–8 decks in both layouts, cached decoding of large files, BPM/grid/key analysis, sync, loops with odd lengths and fine adjust, mixer, folder browser.
-2. **FX and granular:**
-   - Per-deck and master FX chains: brake, backspin, echo out, beat roll, delays, reverbs, filters, flanger, phaser, bitcrusher, gate and the rest of the agreed list.
-   - Granular mode on every deck.
+1. **Core (done):** engine, 2–8 decks in both layouts, cached decoding of large files, BPM/grid/key analysis, sync, loops with odd lengths and fine adjust, mixer, folder browser.
+2. **FX and look (done):** three effect slots per deck including granular, brake and backspin; show/hide for every section; spinning platters; Tech skin. Still to come: a master effect, a per-effect parameter panel and a full granular deck mode.
 3. **Library:** crates and playlists, smart crates, tag reading, batch analysis, search, and import from Rekordbox, Traktor and Serato.
 4. **Production and control:**
    - MIDI learn with LED feedback and saved mappings.
@@ -175,7 +204,8 @@ python3 Tests/make_test_audio.py testaudio
 | `Source/engine/Track.*` | Decoded track in a memory-mapped cache; waveform bins, grid and cues |
 | `Source/engine/TrackLoader.*` | Decoding, cache management, analysis jobs |
 | `Source/engine/Analysis.*` | Tempo, beat grid, key and loudness detection |
-| `Source/engine/Deck.*` | Playback, key lock, loops, cues, slip, sync |
+| `Source/engine/Deck.*` | Playback, key lock, loops, cues, slip, sync, brake, backspin |
+| `Source/engine/Effects.*` | Deck effects: delays, reverb, modulation, gate, crush, granular, stutter |
 | `Source/engine/Mixer.*` | Isolator EQ, filter, faders, crossfader, cue bus, limiter |
 | `Source/engine/AudioEngine.*` | Audio device, master clock, command queue, routing |
 | `Source/ui/*` | Interface |
