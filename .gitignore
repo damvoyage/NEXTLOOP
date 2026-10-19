@@ -1,0 +1,14 @@
+build*/
+JUCE/
+.DS_Store
+*.user
+.vs/
+testaudio/
+ThirdParty/rubberband/.git/
+ThirdParty/rubberband/com/
+ThirdParty/rubberband/cross/
+ThirdParty/rubberband/dotnet/
+ThirdParty/rubberband/ladspa-lv2/
+ThirdParty/rubberband/main/
+ThirdParty/rubberband/vamp/
+ThirdParty/rubberband/otherbuilds/
