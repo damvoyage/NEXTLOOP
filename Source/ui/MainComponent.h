@@ -15,8 +15,8 @@ public:
     DividerBar() { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
     void paint (juce::Graphics& g) override
     {
-        g.setColour (Theme::line);
-        g.fillRoundedRectangle (getLocalBounds().toFloat().withSizeKeepingCentre (40.0f, 3.0f), 1.5f);
+        g.setColour (Theme::tech ? Theme::text.withAlpha (0.5f) : Theme::line);
+        g.fillRect (getLocalBounds().toFloat().withSizeKeepingCentre (40.0f, 3.0f));
     }
     void mouseDown (const juce::MouseEvent&) override { last = 0; }
     void mouseDrag (const juce::MouseEvent& e) override
@@ -78,7 +78,9 @@ private:
 
     juce::Label deckCountLabel { {}, "Decks" }, masterLabel, cpuLabel;
     std::array<std::unique_ptr<juce::TextButton>, 7> deckCountButtons;   // 2..8
-    juce::TextButton settingsButton { "Audio and settings" }, themeButton, monoButton, skinButton;
+    juce::TextButton settingsButton { "Audio and settings" }, themeButton, monoButton;
+    juce::ComboBox skinBox;
+    juce::Label skinLabel { {}, "Skin" };
     juce::Label viewLabel { {}, "SHOW" };
     std::array<std::unique_ptr<juce::TextButton>, numSections> viewButtons;
 

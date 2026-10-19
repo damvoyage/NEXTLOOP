@@ -6,7 +6,7 @@ namespace loopdeck
 // Waveforms sit on a dark screen in the tech skin (day and night), so they use their own ink.
 static juce::Colour waveInk()    { return Theme::tech ? juce::Colour (0xffe6eef6) : Theme::text; }
 static juce::Colour waveInkDim() { return Theme::tech ? juce::Colour (0xff8f9cab) : Theme::textDim; }
-static juce::Colour waveGround() { return Theme::tech ? juce::Colour (0xff07090c) : Theme::base; }
+static juce::Colour waveGround() { return Theme::tech ? Theme::screenA : Theme::base; }
 
 /** Gradient backgrounds are drawn once per size / look and blitted each frame. */
 static void drawCachedBackground (juce::Graphics& g, juce::Image& img, int& key, juce::Component& c, bool vertical)
@@ -229,14 +229,14 @@ void ScrollingWaveform::paint (juce::Graphics& g)
         if (vertical)
         {
             g.fillRect (0.0f, p, w, 1.0f);
-            g.fillRoundedRectangle (w - 15.0f, p - 7.0f, 14.0f, 14.0f, 2.0f);
+            g.fillRect (w - 15.0f, p - 7.0f, 14.0f, 14.0f);
             g.setColour (waveGround());
             g.drawText (juce::String (i + 1), (int) w - 15, (int) p - 7, 14, 14, juce::Justification::centred);
         }
         else
         {
             g.fillRect (p, 0.0f, 1.0f, h);
-            g.fillRoundedRectangle (p, 0.0f, 14.0f, 14.0f, 2.0f);
+            g.fillRect (p, 0.0f, 14.0f, 14.0f);
             g.setColour (waveGround());
             g.drawText (juce::String (i + 1), (int) p, 0, 14, 14, juce::Justification::centred);
         }

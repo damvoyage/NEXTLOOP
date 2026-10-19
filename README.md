@@ -52,7 +52,7 @@ The first load decodes and analyses the file; after that it loads instantly from
 
 **Show / hide.** The *SHOW* row under the top bar switches every part of the screen on or off: Browser, Mixer, Waves, Platter, Cues, Loops, Loop pads, Loop edit, FX, Tempo and Grid. Whatever you hide gives its space to the waveforms, so with the browser and the button sections off the waveforms fill most of the window. 1–4 decks and 5–8 decks remember their own choices.
 
-**Platters.** Each deck has a spinning record that turns at 33⅓ rpm with the audio: it slows with the tempo fader, stops when paused and spins backwards on a backspin. The ring round the edge shows how far through the track you are, with hot cues and the active loop marked. Drag it round to scratch.
+**Platters.** Each deck has a minimal Serato-style platter. A marker turns at 33⅓ rpm with the audio: it slows with the tempo fader, stops when paused and runs backwards on a backspin. The ring shows how far through the track you are, with hot cues and the active loop marked. Drag it round to scratch.
 
 **Clicking the overview.** Click anywhere on the thin whole-track waveform to jump there. If a loop is playing and you click outside it, the loop ends and playback carries on from where you clicked. Clicking inside the loop keeps looping.
 
@@ -81,7 +81,7 @@ The first load decodes and analyses the file; after that it loads instantly from
 
 Echo, ping pong, reverb and echo out ring out naturally when switched off, like a trailing stop; the slot's outline glows while the tail is still sounding. Each deck remembers its effect choices.
 
-**Brake and backspin.** *Brake* slows the deck to a stop like a turntable switched off (about a second; hold shift for three). Click it again or press Play to cancel. *Spin* throws the record backwards and stops.
+**Brake and backspin.** Hold *Brake* and the record slows to a stop like a turntable switched off; hold *Spin* and it spins backwards. Let go and the track carries on from where it would have been if you'd never pressed it, so you stay on the beat. The tiny knob next to each button sets its speed (turn right for a quicker brake or a shorter spin; double-click to reset).
 
 **Varispeed and key lock.** Each deck's key lock button switches between two ways of changing tempo:
 - **Varispeed:** pitch moves with the tempo, like speeding up a record.
@@ -108,10 +108,19 @@ CPU figures are a share of one core on the test machine, with key lock on.
 - **Screen refresh:** set it to 30 frames per second in settings to halve the drawing cost.
 - **Idle decks:** silent channels can't trigger the slow "denormal" maths that makes some audio apps spike when a track ends.
 
-**Looks.** Three switches at the top:
-- *Tech* / *Flat*: Tech (the default) is a 2000s hardware look with brushed-metal panels, glossy keys, glowing blue LEDs, chrome fader caps, segmented LED meters and dark waveform screens. Flat is the quiet look with plain panels.
-- *Day* / *Night*: Day is brushed aluminium in Tech and white in Flat; Night is gunmetal / dark grey.
-- *Mono* / *Colour*: Mono is clinical, greys only (decks told apart by number). Colour gives each deck a muted nature colour (ocean, ember, forest, blood orange…).
+**Skins.** Pick one from *Skin* at the top right. Every skin has sharp corners, and its textures are generated in code: brushed metal, gel, matte plastic grain, pinstripes and wallpapers.
+
+| Skin | Look |
+|---|---|
+| Gunmetal (default) | 2000s hardware: brushed gunmetal, glossy keys, blue LEDs |
+| Flat | Quiet and flat: muted nature colours or clinical greys |
+| Aero Aqua | Frutiger Aero / console aqua: sky, bubbles, pinstripes, wet gel keys |
+| 90s Black | Late-90s black hi-fi: matte and gloss black plastic, silver print, amber LEDs |
+| Cyber Ocean | Deep-sea wallpaper, smoked-glass panels, cyan light |
+| Desktop 98 | The 1998 desktop: grey 3D bevels, navy title bars, teal backdrop |
+| Soft Club | Gen X corporate chrome blue, frosted highlights, lens flare |
+
+*Day* / *Night* and *Mono* / *Colour* apply to Gunmetal and Flat. Pictures of every skin are in [docs/skins](docs/skins).
 
 **Sync.**
 - **Sync** locks tempo and beat phase to the master deck.
@@ -147,7 +156,7 @@ CPU figures are a share of one core on the test machine, with key lock on.
 - **Stretched audio stays on the grid:** on a click track, stretched output lands within 1.7 ms of the beat grid on Light, 0.35 ms on Studio, and within 2 ms on the vintage sounds.
 - **Loop exit:** seeking inside a loop keeps it; clicking outside ends it and plays on from the click.
 - **Effects:** every effect stays finite and level-safe, tails end on their own, echo keeps ringing after the deck stops and echo out removes the dry signal. Three effects on each of eight decks cost about 7 % of one core.
-- **Brake and backspin:** brake stops the deck in the set time; backspin runs backwards, then stops.
+- **Brake and backspin:** both land exactly (0.00 ms) where the track would have been when released.
 - **Large files:** a 60-minute WAV is playable 11 ms after loading and fully analysed in under 8 seconds.
 - **Load:** eight decks playing use about 2 % of one CPU core in varispeed and 6.5 % with Light key lock.
 - **Both framework versions:** the tests pass on JUCE 9 (Windows 10/11 and Mac builds) and JUCE 7 (Windows 7 builds).
@@ -189,7 +198,7 @@ python3 Tests/make_test_audio.py testaudio
 ## Roadmap
 
 1. **Core (done):** engine, 2–8 decks in both layouts, cached decoding of large files, BPM/grid/key analysis, sync, loops with odd lengths and fine adjust, mixer, folder browser.
-2. **FX and look (done):** three effect slots per deck including granular, brake and backspin; show/hide for every section; spinning platters; Tech skin. Still to come: a master effect, a per-effect parameter panel and a full granular deck mode.
+2. **FX and look (done):** three effect slots per deck including granular, brake and backspin; show/hide for every section; spinning platters; seven skins. Still to come: a master effect, a per-effect parameter panel and a full granular deck mode.
 3. **Library:** crates and playlists, smart crates, tag reading, batch analysis, search, and import from Rekordbox, Traktor and Serato.
 4. **Production and control:**
    - MIDI learn with LED feedback and saved mappings.

@@ -58,6 +58,8 @@ struct DeckSettings
                                            LoopLength::bars (1), LoopLength::bars (2), LoopLength::bars (4),
                                            LoopLength::bars (5), LoopLength::bars (7) };
     bool pitchUpIsFaster = false;   // Technics convention: pull the fader down to speed up
+    std::array<float, 8> brakeSeconds { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+    std::array<float, 8> spinSeconds  { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     std::function<void()> onChanged;
 };
 
@@ -104,6 +106,7 @@ private:
     void applyVisibility();
     bool shown (Section s) const { return settings.view.shown (s); }
     juce::Rectangle<int> headerDisplay;   // LCD window behind the numbers
+    juce::Rectangle<int> titleBar;        // behind the track title (Desktop 98 draws a title bar)
     void setupButton (juce::Button& b, const juce::String& text, const juce::String& tip, bool deckColoured = false);
     void updateLoopLabel();
     void setCurrentLength (LoopLength l, bool resizeActiveLoop);
@@ -145,7 +148,7 @@ private:
                      gridHalf { "/2" }, gridDouble { "x2" }, gridL { "Grid <" }, gridR { "Grid >" }, gridSet { "Set 1" }, tap { "Tap" },
                      eject { "Eject" };
     juce::ComboBox fineStep, pitchRange;
-    juce::Slider pitch;
+    juce::Slider pitch, brakeSpeed, spinSpeed;
 
     LoopLength length = LoopLength::bars (1);
     juce::Array<double> taps;

@@ -29,7 +29,7 @@ void Platter::refresh()
     if (t != nullptr)
     {
         const double ang = angleFor (d.uiPosition.load(), t->sampleRate);
-        mix (std::floor (ang * 180.0 / juce::MathConstants<double>::pi));   // one degree steps
+        mix (std::floor (ang * 90.0 / juce::MathConstants<double>::pi));   // two degree steps
         const double total = (double) juce::jmax ((juce::int64) 1, t->totalFrames.load());
         mix (std::floor (d.uiPosition.load() / total * 720.0));
         mix (d.uiPlaying.load() ? 1.0 : 0.0);
@@ -40,108 +40,33 @@ void Platter::refresh()
     if (h != lastSignature) { lastSignature = h; repaint(); }
 }
 
-namespace
-{
-    struct PlatterGeometry
-    {
-        juce::Rectangle<float> sq;
-        juce::Point<float> c;
-        float R, ringW, ringR, discR, labelR;
-        PlatterGeometry (juce::Rectangle<float> bounds)
-        {
-            const float size = juce::jmin (bounds.getWidth(), bounds.getHeight()) - 2.0f;
-            sq = juce::Rectangle<float> (size, size).withCentre (bounds.getCentre());
-            c = sq.getCentre();
-            R = size * 0.5f;
-            ringW = juce::jmax (3.0f, R * 0.09f);
-            ringR = R - ringW * 0.5f - 2.0f;
-            discR = ringR - ringW * 0.5f - juce::jmax (2.0f, R * 0.04f);
-            labelR = discR * 0.36f;
-        }
-    };
-}
-
-void Platter::buildDisc (int)
-{
-    // everything that doesn't move: housing, ring channel, vinyl, label
-    const int w = juce::jmax (1, getWidth()), h = juce::jmax (1, getHeight());
-    disc = juce::Image (juce::Image::ARGB, w, h, true);
-    discTheme = Theme::key() * 2 + (engine.getTrack (deck) != nullptr ? 1 : 0);
-    juce::Graphics g (disc);
-    const PlatterGeometry geo (juce::Rectangle<float> (0.0f, 0.0f, (float) w, (float) h));
-    const auto& sq = geo.sq;
-    const auto c = geo.c;
-
-    if (Theme::tech)
-    {
-        g.setGradientFill (juce::ColourGradient (Theme::panelTop.brighter (0.1f), sq.getX(), sq.getY(),
-                                                 Theme::panelBottom.darker (0.3f), sq.getRight(), sq.getBottom(), false));
-        g.fillEllipse (sq);
-        g.setColour (juce::Colours::black.withAlpha (0.8f));
-        g.drawEllipse (sq.reduced (0.5f), 1.0f);
-    }
-    else
-    {
-        g.setColour (Theme::raised);
-        g.fillEllipse (sq);
-    }
-
-    {
-        juce::Path bg;
-        bg.addCentredArc (c.x, c.y, geo.ringR, geo.ringR, 0.0f, 0.0f, juce::MathConstants<float>::twoPi, true);
-        g.setColour (juce::Colours::black.withAlpha (Theme::day && ! Theme::tech ? 0.15f : 0.6f));
-        g.strokePath (bg, juce::PathStrokeType (geo.ringW));
-    }
-
-    // vinyl with a soft sheen and grooves
-    const float r = geo.discR;
-    const auto vinylA = Theme::day && ! Theme::tech ? juce::Colour (0xff3a3c40) : juce::Colour (0xff0d0e10);
-    const auto vinylB = Theme::day && ! Theme::tech ? juce::Colour (0xff55585e) : juce::Colour (0xff23262b);
-    g.setGradientFill (juce::ColourGradient (vinylB, c.x - r * 0.7f, c.y - r * 0.7f, vinylA, c.x + r * 0.6f, c.y + r * 0.8f, true));
-    g.fillEllipse (c.x - r, c.y - r, r * 2.0f, r * 2.0f);
-    for (float gr = r * 0.40f; gr < r * 0.97f; gr += juce::jmax (1.5f, r * 0.035f))
-    {
-        g.setColour (juce::Colours::white.withAlpha (0.035f));
-        g.drawEllipse (c.x - gr, c.y - gr, gr * 2.0f, gr * 2.0f, 0.8f);
-    }
-    juce::Path sheen;
-    sheen.addPieSegment (c.x - r, c.y - r, r * 2.0f, r * 2.0f, -0.5f, 0.25f, 0.42f);
-    sheen.addPieSegment (c.x - r, c.y - r, r * 2.0f, r * 2.0f, juce::MathConstants<float>::pi - 0.5f, juce::MathConstants<float>::pi + 0.25f, 0.42f);
-    g.setColour (juce::Colours::white.withAlpha (0.05f));
-    g.fillPath (sheen);
-
-    // label in the deck colour
-    const float labelR = geo.labelR;
-    const auto hue = Theme::deck (deck);
-    g.setColour (engine.getTrack (deck) != nullptr ? hue.darker (Theme::tech ? 0.2f : 0.0f) : Theme::line);
-    g.fillEllipse (c.x - labelR, c.y - labelR, labelR * 2.0f, labelR * 2.0f);
-    if (Theme::tech)
-    {
-        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.25f), c.x, c.y - labelR,
-                                                 juce::Colours::transparentWhite, c.x, c.y + labelR * 0.2f, false));
-        g.fillEllipse (c.x - labelR, c.y - labelR, labelR * 2.0f, labelR * 2.0f);
-    }
-    g.setColour (juce::Colours::black.withAlpha (0.5f));
-    g.drawEllipse (c.x - labelR, c.y - labelR, labelR * 2.0f, labelR * 2.0f, 1.0f);
-}
+void Platter::buildDisc (int) {}
 
 void Platter::paint (juce::Graphics& g)
 {
-    const PlatterGeometry geo (getLocalBounds().toFloat());
-    if (geo.R < 6.0f) return;
-    const auto c = geo.c;
+    // Serato-style: no record, just a ring, a progress arc and the spinning marker
+    auto bounds = getLocalBounds().toFloat();
+    const float size = juce::jmin (bounds.getWidth(), bounds.getHeight()) - 4.0f;
+    if (size < 12.0f) return;
+    const auto c = bounds.getCentre();
+    const float R = size * 0.5f;
     const auto hue = Theme::deck (deck);
-    const auto ringCol = Theme::tech ? Theme::active : hue;
+    const bool lightBg = Theme::day && Theme::skin != Theme::Skin::Win98;
+    const auto ink = lightBg ? juce::Colour (0xff1a1d22) : juce::Colours::white;
     auto t = engine.getTrack (deck);
     auto& d = engine.getDeck (deck);
 
-    const int key = Theme::key() * 2 + (t != nullptr ? 1 : 0);
-    if (! disc.isValid() || disc.getWidth() != getWidth() || disc.getHeight() != getHeight() || discTheme != key)
-        buildDisc (0);
-    g.setOpacity (1.0f);
-    g.drawImageAt (disc, 0, 0);
+    // a faint disc so the ring reads on any skin
+    g.setColour ((lightBg ? juce::Colours::white : juce::Colours::black).withAlpha (0.18f));
+    g.fillEllipse (c.x - R, c.y - R, R * 2.0f, R * 2.0f);
 
-    const float ringR = geo.ringR, ringW = geo.ringW;
+    const float ringW = juce::jmax (2.0f, R * 0.05f);
+    const float ringR = R - ringW;
+    juce::Path ring;
+    ring.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, 0.0f, juce::MathConstants<float>::twoPi, true);
+    g.setColour (ink.withAlpha (0.16f));
+    g.strokePath (ring, juce::PathStrokeType (ringW));
+
     double pos = 0.0, sr = 44100.0;
     if (t != nullptr)
     {
@@ -152,54 +77,40 @@ void Platter::paint (juce::Graphics& g)
         const bool warn = d.uiPlaying.load() && (total - pos) / sr < 30.0;
         juce::Path arc;
         arc.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, 0.0f, frac * juce::MathConstants<float>::twoPi, true);
-        const auto col = warn ? Theme::warn : ringCol;
-        if (Theme::tech)
-        {
-            g.setColour (col.withAlpha (0.3f));
-            g.strokePath (arc, juce::PathStrokeType (ringW * 1.8f));
-        }
-        g.setColour (col);
+        g.setColour (warn ? Theme::warn : hue);
         g.strokePath (arc, juce::PathStrokeType (ringW));
 
         for (auto& hc : t->hotCues)
             if (hc.load() >= 0.0)
             {
                 const float a = (float) (hc.load() / total) * juce::MathConstants<float>::twoPi;
-                g.setColour (hue.brighter (0.3f));
-                g.drawLine ({ c.getPointOnCircumference (ringR + ringW * 0.5f, a), c.getPointOnCircumference (ringR - ringW * 0.5f - 1.0f, a) }, 2.0f);
+                g.setColour (ink.withAlpha (0.8f));
+                g.drawLine ({ c.getPointOnCircumference (ringR + ringW * 0.5f, a), c.getPointOnCircumference (ringR - ringW * 1.5f, a) }, 1.5f);
             }
         if (d.uiLoopActive.load())
         {
             juce::Path loopArc;
             const float a0 = (float) (d.uiLoopStart.load() / total) * juce::MathConstants<float>::twoPi;
             const float a1 = (float) (d.uiLoopEnd.load() / total) * juce::MathConstants<float>::twoPi;
-            loopArc.addCentredArc (c.x, c.y, ringR - ringW, ringR - ringW, 0.0f, a0, juce::jmax (a0 + 0.03f, a1), true);
-            g.setColour (hue);
-            g.strokePath (loopArc, juce::PathStrokeType (2.0f));
+            loopArc.addCentredArc (c.x, c.y, ringR - ringW * 1.8f, ringR - ringW * 1.8f, 0.0f, a0, juce::jmax (a0 + 0.04f, a1), true);
+            g.setColour (hue.withAlpha (0.9f));
+            g.strokePath (loopArc, juce::PathStrokeType (1.5f));
         }
     }
 
-    // the stripe across the record turns with the audio
+    // the spinning marker
     const float angle = t != nullptr ? (float) angleFor (pos, sr) : 0.0f;
-    const auto inner = c.getPointOnCircumference (geo.labelR + 1.0f, angle);
-    const auto outer = c.getPointOnCircumference (geo.discR - 1.0f, angle);
-    const auto stripe = Theme::tech ? Theme::active.brighter (0.4f) : Theme::text;
-    g.setColour (stripe.withAlpha (0.35f));
-    g.drawLine ({ inner, outer }, juce::jmax (3.0f, geo.R * 0.07f));
-    g.setColour (stripe);
-    g.drawLine ({ inner, outer }, juce::jmax (1.5f, geo.R * 0.03f));
-    g.setColour (juce::Colours::black.withAlpha (0.45f));
-    g.drawLine ({ c.getPointOnCircumference (geo.labelR * 0.35f, angle), c.getPointOnCircumference (geo.labelR * 0.92f, angle) }, 2.0f);
+    g.setColour (t != nullptr ? ink : ink.withAlpha (0.3f));
+    g.drawLine ({ c.getPointOnCircumference (R * 0.30f, angle), c.getPointOnCircumference (ringR - ringW * 2.5f, angle) }, juce::jmax (1.5f, R * 0.035f));
 
-    g.setColour (juce::Colours::white.withAlpha (0.92f));
-    g.setFont (Theme::numbers (juce::jlimit (9.0f, 20.0f, geo.labelR * 0.75f)));
-    g.drawText (juce::String (deck + 1), juce::Rectangle<float> (geo.labelR * 2.0f, geo.labelR * 2.0f).withCentre (c),
-                juce::Justification::centred);
+    g.setColour (ink.withAlpha (0.55f));
+    g.setFont (Theme::numbers (juce::jlimit (9.0f, 15.0f, R * 0.22f)));
+    g.drawText (juce::String (deck + 1), juce::Rectangle<float> (R, R).withCentre (c), juce::Justification::centred);
 
-    if (engine.uiMasterDeck.load() == deck && Theme::tech)
+    if (engine.uiMasterDeck.load() == deck)
     {
-        g.setColour (Theme::active.withAlpha (0.5f));
-        g.drawEllipse (geo.sq.reduced (0.5f), 1.5f);
+        g.setColour (hue.withAlpha (0.45f));
+        g.drawEllipse (c.x - R, c.y - R, R * 2.0f, R * 2.0f, 1.0f);
     }
 }
 
@@ -336,7 +247,7 @@ void FxSlotComponent::paint (juce::Graphics& g)
     if ((bool) getProperties().getWithDefault ("tail", false))
     {
         g.setColour (Theme::active.withAlpha (0.6f));
-        g.drawRoundedRectangle (r.reduced (1.0f), 3.0f, 1.0f);
+        g.drawRect (r.reduced (1.0f), 1.0f);
     }
 }
 

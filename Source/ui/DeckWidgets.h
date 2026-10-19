@@ -7,10 +7,10 @@ namespace loopdeck
 {
 
 /**
-    Spinning platter, Serato / VirtualDJ style. Turns at 33 1/3 rpm with the
-    audio (so it slows with the tempo fader, stops when paused, runs backwards
-    on a backspin). The outer ring shows how far through the track you are,
-    with hot cues and the loop marked on it. Drag it round to scratch.
+    Minimal Serato-style platter: a ring showing how far through the track you
+    are (with hot cues and the loop), and a marker that turns at 33 1/3 rpm with
+    the audio, so it slows with the tempo, stops on pause and runs backwards on
+    a backspin. Drag it round to scratch.
 */
 class Platter : public juce::Component, public juce::SettableTooltipClient
 {

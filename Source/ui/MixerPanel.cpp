@@ -20,7 +20,7 @@ void LevelMeter::paint (juce::Graphics& g)
     {
         // segmented LED ladder: green, amber, red
         g.setColour (juce::Colours::black.withAlpha (Theme::day ? 0.75f : 0.9f));
-        g.fillRoundedRectangle (r, 2.0f);
+        g.fillRect (r);
         auto inner = r.reduced (2.0f);
         const float colW = (inner.getWidth() - 1.0f) * 0.5f;
         const int segs = juce::jlimit (8, 40, (int) (inner.getHeight() / 4.0f));
@@ -45,7 +45,7 @@ void LevelMeter::paint (juce::Graphics& g)
         return;
     }
     g.setColour (Theme::base);
-    g.fillRoundedRectangle (r, 2.0f);
+    g.fillRect (r);
 
     auto bar = [&] (juce::Rectangle<float> b, float level, float hold)
     {
@@ -178,7 +178,7 @@ void ChannelComponent::paint (juce::Graphics& g)
 {
     Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
     g.setColour (hue);
-    g.fillRoundedRectangle (getLocalBounds().toFloat().removeFromTop (3.0f), 1.5f);
+    g.fillRect (getLocalBounds().toFloat().removeFromTop (3.0f));
     g.setFont (Theme::numbers (13.0f));
     g.drawText (juce::String (deck + 1), getLocalBounds().removeFromTop (20), juce::Justification::centred);
 }
@@ -230,7 +230,7 @@ void ChannelComponent::resized()
 // ===========================================================================
 MasterSection::MasterSection (AudioEngine& e)
     : engine (e),
-      masterVol ("Master", Theme::active, false), phonesMix ("Cue / mix", Theme::active, true), phonesVol ("Phones", Theme::active, false)
+      masterVol ("Master", Theme::accent2, false), phonesMix ("Cue / mix", Theme::accent2, true), phonesVol ("Phones", Theme::accent2, false)
 {
     auto& m = engine.getMixer().master;
 
@@ -310,19 +310,22 @@ void MasterSection::resized()
 
     meter.setBounds (r.removeFromRight (14));
     r.removeFromRight (4);
+    // ordinary-sized knobs, the same size as the channel knobs
+    const int knob = 48;
     if (r.getHeight() > r.getWidth())
     {
-        const int kh = r.getHeight() / 3;
-        masterVol.setBounds (r.removeFromTop (kh));
-        phonesMix.setBounds (r.removeFromTop (kh));
-        phonesVol.setBounds (r);
+        auto col = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), knob + 16), juce::jmin (r.getHeight(), 3 * (knob + 14) + 16));
+        const int kh = col.getHeight() / 3;
+        masterVol.setBounds (col.removeFromTop (kh).withSizeKeepingCentre (knob + 16, juce::jmin (kh, knob + 14)));
+        phonesMix.setBounds (col.removeFromTop (kh).withSizeKeepingCentre (knob + 16, juce::jmin (kh, knob + 14)));
+        phonesVol.setBounds (col.withSizeKeepingCentre (knob + 16, juce::jmin (col.getHeight(), knob + 14)));
     }
     else
     {
         const int kw = r.getWidth() / 3;
-        masterVol.setBounds (r.removeFromLeft (kw));
-        phonesMix.setBounds (r.removeFromLeft (kw));
-        phonesVol.setBounds (r);
+        masterVol.setBounds (r.removeFromLeft (kw).withSizeKeepingCentre (juce::jmin (kw, knob + 16), juce::jmin (r.getHeight(), knob + 14)));
+        phonesMix.setBounds (r.removeFromLeft (kw).withSizeKeepingCentre (juce::jmin (kw, knob + 16), juce::jmin (r.getHeight(), knob + 14)));
+        phonesVol.setBounds (r.withSizeKeepingCentre (juce::jmin (kw, knob + 16), juce::jmin (r.getHeight(), knob + 14)));
     }
 }
 

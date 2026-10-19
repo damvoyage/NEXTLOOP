@@ -52,8 +52,10 @@ struct DeckCommand
         SyncOn, SyncOff,
         ScratchBegin, ScratchMove /* a = target frame */, ScratchEnd,
         BeatJump,        // a = beats (+/-)
-        Brake,           // a = seconds: turntable power-off slowdown, then pause
-        Backspin,        // a = seconds: record spun backwards, then pause
+        Brake,           // a = seconds: turntable power-off slowdown while held
+        BrakeEnd,        // release: carries on from where the track would have been
+        Backspin,        // a = seconds: record spun backwards while held
+        BackspinEnd,     // release: carries on from where the track would have been
     };
 
     Type type = Play;
@@ -182,7 +184,10 @@ private:
     bool braking = false, backspinning = false;
     double brakeFactor = 1.0, brakeStep = 0.0;      // brake: rate multiplier ramp
     double spinElapsed = 0.0, spinLength = 1.0;     // backspin: seconds
+    double effectSlipPos = 0.0;                     // where the track would be without the effect
     void exitLoopIfOutside (double target);
+    void startTransportEffect();
+    void endTransportEffect();
 
     // sync
     double syncCorrection = 0.0;

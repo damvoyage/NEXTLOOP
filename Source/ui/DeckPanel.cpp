@@ -27,6 +27,9 @@ static void spread (juce::Rectangle<int> r, std::initializer_list<juce::Componen
     }
 }
 
+/** Ink for text inside the LCD windows. */
+static juce::Colour lcdInk() { return Theme::tech ? Theme::lcdText : Theme::text; }
+
 static bool camelotCompatible (const juce::String& a, const juce::String& b)
 {
     if (a.isEmpty() || b.isEmpty()) return false;
@@ -108,8 +111,16 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
         l->setMinimumHorizontalScale (0.6f);
     }
     title.setFont (Theme::label (15.0f, true));
+    // numbers sit in the LCD window
+    for (auto* l : { &timeLabel, &bpmLabel, &keyLabel })
+        l->setColour (juce::Label::textColourId, lcdInk());
+    if (Theme::skin == Theme::Skin::Win98)
+    {
+        title.setColour (juce::Label::textColourId, juce::Colours::white);
+        artist.setColour (juce::Label::textColourId, juce::Colour (0xffd0d8ff));
+    }
     artist.setFont (Theme::label (12.0f));
-    artist.setColour (juce::Label::textColourId, Theme::textDim);
+    if (Theme::skin != Theme::Skin::Win98) artist.setColour (juce::Label::textColourId, Theme::textDim);
     timeLabel.setFont (Theme::numbers (17.0f));
     timeLabel.setJustificationType (juce::Justification::centredRight);
     bpmLabel.setFont (Theme::numbers (24.0f));
@@ -119,7 +130,7 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     bpmLabel.addMouseListener (this, false);
     pitchLabel.setFont (Theme::label (12.0f, true));
     pitchLabel.setJustificationType (juce::Justification::centredRight);
-    pitchLabel.setColour (juce::Label::textColourId, Theme::textDim);
+    pitchLabel.setColour (juce::Label::textColourId, lcdInk().withAlpha (0.7f));
     keyLabel.setFont (Theme::label (15.0f, true));
     keyLabel.setJustificationType (juce::Justification::centred);
     loopLabel.setFont (Theme::numbers (14.0f));
@@ -127,7 +138,8 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     loopLabel.setInterceptsMouseClicks (true, false);
     loopLabel.setTooltip ("Click to type a loop length, e.g. 5 bars, 13, 3 beats, 1/4");
     loopLabel.addMouseListener (this, false);
-    loopLabel.setColour (juce::Label::backgroundColourId, Theme::base);
+    loopLabel.setColour (juce::Label::backgroundColourId, Theme::tech ? Theme::lcd : Theme::base);
+    loopLabel.setColour (juce::Label::textColourId, lcdInk());
 
     // --- transport ------------------------------------------------------------
     setupButton (play, "Play", "Play / pause", true);
@@ -156,16 +168,37 @@ DeckPanel::DeckPanel (AudioEngine& e, int d, DeckSettings& s, LoadFileFn fn)
     quant.onClick = [this] { auto& dk = engine.getDeck (deck); dk.quantize = ! dk.quantize.load(); };
     setupButton (slip, "Slip", "Loops and scratches return to where the track would have been");
     slip.onClick = [this] { auto& dk = engine.getDeck (deck); dk.slipMode = ! dk.slipMode.load(); };
-    setupButton (brake, "Brake", "Turntable brake: slows to a stop (about one second). Click again or press Play to cancel");
-    brake.onPress = [this] (const juce::ModifierKeys& m)
-    {
-        auto& dk = engine.getDeck (deck);
-        if (dk.uiBraking.load()) engine.post (DeckCommand::Play, deck);
-        else engine.post (DeckCommand::Brake, deck, m.isShiftDown() ? 3.0 : 1.0);
-    };
-    setupButton (spin, "Spin", "Backspin: spins the record backwards and stops");
-    spin.onPress = [this] (const juce::ModifierKeys& m) { engine.post (DeckCommand::Backspin, deck, m.isShiftDown() ? 2.0 : 1.0); };
+    setupButton (brake, "Brake", "Hold: the record slows to a stop. Let go and the track carries on from where it would have been");
+    brake.onPress = [this] (const juce::ModifierKeys&) { engine.post (DeckCommand::Brake, deck, settings.brakeSeconds[(size_t) deck]); };
+    brake.onRelease = [this] { engine.post (DeckCommand::BrakeEnd, deck); };
+    setupButton (spin, "Spin", "Hold: the record spins backwards. Let go and the track carries on from where it would have been");
+    spin.onPress = [this] (const juce::ModifierKeys&) { engine.post (DeckCommand::Backspin, deck, settings.spinSeconds[(size_t) deck]); };
+    spin.onRelease = [this] { engine.post (DeckCommand::BackspinEnd, deck); };
     for (auto* b : { &brake, &spin }) b->getProperties().set ("fontScale", 0.85);
+
+    auto setupSpeedKnob = [this] (juce::Slider& k, float& value, const juce::String& tip)
+    {
+        addAndMakeVisible (k);
+        k.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        k.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        k.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
+        // turned right = faster effect = shorter time
+        k.setRange (0.0, 1.0, 0.0);
+        auto toSeconds = [] (double v) { return (float) (4.0 * std::pow (0.1 / 4.0, v)); };   // 4 s .. 0.1 s
+        auto toValue = [] (float sec) { return std::log (sec / 4.0) / std::log (0.1 / 4.0); };
+        k.setValue (toValue (value), juce::dontSendNotification);
+        k.setDoubleClickReturnValue (true, toValue (0.8f));
+        k.setColour (juce::Slider::rotarySliderFillColourId, Theme::tech ? Theme::active : hue);
+        k.onValueChange = [&k, &value, toSeconds, this]
+        {
+            value = toSeconds (k.getValue());
+            k.setTooltip (juce::String (value, 2) + " s");
+            if (settings.onChanged) settings.onChanged();
+        };
+        k.setTooltip (tip);
+    };
+    setupSpeedKnob (brakeSpeed, settings.brakeSeconds[(size_t) deck], "Brake speed: turn right for a quicker stop");
+    setupSpeedKnob (spinSpeed, settings.spinSeconds[(size_t) deck], "Spin speed: turn right for a shorter spin");
 
     setupButton (eject, "Eject", "Unload this deck");
     eject.onClick = [this] { engine.ejectTrack (deck); };
@@ -569,7 +602,7 @@ void DeckPanel::refresh()
         const double total = (double) t->totalFrames.load();
         const double remaining = (total - pos) / t->sampleRate;
         timeLabel.setText (formatTime (remaining, true), juce::dontSendNotification);
-        timeLabel.setColour (juce::Label::textColourId, remaining < 30.0 && dk.uiPlaying.load() ? Theme::warn : Theme::text);
+        timeLabel.setColour (juce::Label::textColourId, remaining < 30.0 && dk.uiPlaying.load() ? Theme::warn : lcdInk());
 
         const double bpm = dk.uiEffectiveBpm.load();
         bpmLabel.setText (t->grid.isValid() ? juce::String (bpm, 2) : "--.--", juce::dontSendNotification);
@@ -591,7 +624,7 @@ void DeckPanel::refresh()
         const int m = engine.uiMasterDeck.load();
         if (m >= 0 && m != deck)
             if (auto mt = engine.getTrack (m)) compatible = camelotCompatible (cam, mt->getCamelot());
-        keyLabel.setColour (juce::Label::textColourId, compatible ? Theme::meterOk : Theme::text);
+        keyLabel.setColour (juce::Label::textColourId, compatible ? Theme::meterOk : lcdInk());
         keyLabel.setTooltip (t->getKey().isNotEmpty() ? t->getKey() + (compatible ? " (mixes with the master deck)" : "") : juce::String());
 
         if (! wasLoaded) { wasLoaded = true; updateLoopLabel(); }
@@ -656,6 +689,13 @@ void DeckPanel::paint (juce::Graphics& g)
 {
     Theme::drawPanel (g, getLocalBounds().toFloat(), 5.0f);
 
+    if (Theme::skin == Theme::Skin::Win98 && ! titleBar.isEmpty())
+    {
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff000080), (float) titleBar.getX(), 0.0f,
+                                                 juce::Colour (0xff1084d0), (float) titleBar.getRight(), 0.0f, false));
+        g.fillRect (titleBar);
+    }
+
     if (! headerDisplay.isEmpty())
         Theme::drawInset (g, headerDisplay.toFloat(), 3.0f);
 
@@ -663,19 +703,22 @@ void DeckPanel::paint (juce::Graphics& g)
     auto badge = juce::Rectangle<float> (8.0f, 8.0f, 26.0f, 26.0f);
     if (Theme::tech)
     {
-        g.setColour (hue.withAlpha (0.3f));
-        g.fillRoundedRectangle (badge.expanded (1.5f), 4.5f);
+        if (Theme::skin != Theme::Skin::Win98)
+        {
+            g.setColour (hue.withAlpha (0.3f));
+            g.fillRect (badge.expanded (1.5f));
+        }
         g.setGradientFill (juce::ColourGradient (hue.brighter (0.3f), badge.getX(), badge.getY(), hue.darker (0.35f),
                                                  badge.getX(), badge.getBottom(), false));
-        g.fillRoundedRectangle (badge, 3.0f);
+        g.fillRect (badge);
         g.setColour (juce::Colours::black.withAlpha (0.7f));
-        g.drawRoundedRectangle (badge, 3.0f, 1.0f);
+        g.drawRect (badge, 1.0f);
         g.setColour (juce::Colours::white);
     }
     else
     {
         g.setColour (hue);
-        g.fillRoundedRectangle (badge, 3.0f);
+        g.fillRect (badge);
         g.setColour (Theme::base);
     }
     g.setFont (Theme::numbers (16.0f));
@@ -761,6 +804,7 @@ void DeckPanel::layoutWide (juce::Rectangle<int> r)
     keyLabel.setBounds (right.removeFromRight (52));
     timeLabel.setBounds (right);
     header.removeFromRight (6);
+    titleBar = header.withLeft (4).withRight (header.getRight()).expanded (0, 1);
     title.setBounds (header.removeFromTop (17));
     artist.setBounds (header);
 
@@ -773,8 +817,16 @@ void DeckPanel::layoutWide (juce::Rectangle<int> r)
     auto left = r.removeFromLeft (hasPlatter ? juce::jlimit (96, 170, juce::jmin (r.getHeight() - 52, r.getWidth() / 4)) : 84);
     r.removeFromLeft (6);
     {
-        auto spinRow = left.removeFromBottom (20);
-        spread (spinRow, { &brake, &spin }, 3);
+        auto spinRow = left.removeFromBottom (22);
+        {
+            const int kw = 22;
+            const int bw = (spinRow.getWidth() - 2 * kw - 6) / 2;
+            brake.setBounds (spinRow.removeFromLeft (bw));
+            brakeSpeed.setBounds (spinRow.removeFromLeft (kw));
+            spinRow.removeFromLeft (6);
+            spin.setBounds (spinRow.removeFromLeft (bw));
+            spinSpeed.setBounds (spinRow.removeFromLeft (kw));
+        }
         left.removeFromBottom (4);
         if (hasPlatter)
         {
@@ -878,6 +930,7 @@ void DeckPanel::layoutStrip (juce::Rectangle<int> r)
     top.removeFromLeft (32);
     eject.setBounds (top.removeFromRight (38).reduced (0, 3));
     top.removeFromRight (3);
+    titleBar = top.withLeft (4);
     title.setBounds (top);
     header.removeFromTop (2);
     headerDisplay = header;
@@ -915,16 +968,28 @@ void DeckPanel::layoutStrip (juce::Rectangle<int> r)
         {
             platter.setBounds (a.removeFromLeft (a.getHeight()));
             a.removeFromLeft (4);
-            const int bh = (a.getHeight() - 6) / 3;
+            const int bh = (a.getHeight() - 3) / 2;
             cue.setBounds (a.removeFromTop (bh)); a.removeFromTop (3);
-            play.setBounds (a.removeFromTop (bh)); a.removeFromTop (3);
-            spread (a, { &brake, &spin }, 3);
+            play.setBounds (a);
+        } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a)
+        {
+            const int kw = a.getHeight();
+            const int bw = (a.getWidth() - 2 * kw - 6) / 2;
+            brake.setBounds (a.removeFromLeft (bw)); brakeSpeed.setBounds (a.removeFromLeft (kw)); a.removeFromLeft (6);
+            spin.setBounds (a.removeFromLeft (bw)); spinSpeed.setBounds (a.removeFromLeft (kw));
         } });
     }
     else
     {
         rows.push_back ({ rh + 6, [this] (juce::Rectangle<int> a) { spread (a, { &cue, &play }, 4); } });
-        rows.push_back ({ rh, [this] (juce::Rectangle<int> a) { spread (a, { &brake, &spin }, 3); } });
+        rows.push_back ({ rh, [this] (juce::Rectangle<int> a)
+        {
+            const int kw = a.getHeight();
+            const int bw = (a.getWidth() - 2 * kw - 6) / 2;
+            brake.setBounds (a.removeFromLeft (bw)); brakeSpeed.setBounds (a.removeFromLeft (kw)); a.removeFromLeft (6);
+            spin.setBounds (a.removeFromLeft (bw)); spinSpeed.setBounds (a.removeFromLeft (kw));
+        } });
     }
     if (tempo)
         rows.push_back ({ rh, [this] (juce::Rectangle<int> a)

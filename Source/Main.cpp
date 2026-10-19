@@ -20,7 +20,12 @@ public:
         o.osxLibrarySubFolder = "Application Support";
         properties.setStorageParameters (o);
         auto& props = *properties.getUserSettings();
-        Theme::set (props.getBoolValue ("dayMode", false), props.getBoolValue ("monoMode", false), props.getBoolValue ("techSkin", true));
+        {
+            // older settings stored only tech on/off
+            int skin = props.getIntValue ("skin", props.getBoolValue ("techSkin", true) ? (int) Theme::Skin::Gunmetal : (int) Theme::Skin::Flat);
+            skin = juce::jlimit (0, Theme::numSkins - 1, skin);
+            Theme::set (props.getBoolValue ("dayMode", false), props.getBoolValue ("monoMode", false), (Theme::Skin) skin);
+        }
 
         engine = std::make_unique<AudioEngine>();
 
@@ -121,8 +126,12 @@ private:
         args.removeEmptyStrings();
         if (args.contains ("--day")) { Theme::setDay (true); args.removeString ("--day"); }
         if (args.contains ("--night")) { Theme::setDay (false); args.removeString ("--night"); }
-        if (args.contains ("--mono")) { Theme::set (Theme::day, true); args.removeString ("--mono"); }
-        if (args.contains ("--flat")) { Theme::set (Theme::day, Theme::mono, false); args.removeString ("--flat"); }
+        if (args.contains ("--mono")) { Theme::set (Theme::userDay, true); args.removeString ("--mono"); }
+        if (args.contains ("--flat")) { Theme::set (Theme::userDay, Theme::userMono, Theme::Skin::Flat); args.removeString ("--flat"); }
+        for (auto& a : args)
+            if (a.startsWith ("--skin="))
+                Theme::set (Theme::userDay, Theme::userMono, (Theme::Skin) juce::jlimit (0, Theme::numSkins - 1, a.fromFirstOccurrenceOf ("=", false, false).getIntValue()));
+        for (int i = args.size(); --i >= 0;) if (args[i].startsWith ("--skin=")) args.remove (i);
         // --view=a,b,c sets which sections are shown (for screenshots)
         for (auto& a : args)
             if (a.startsWith ("--view="))

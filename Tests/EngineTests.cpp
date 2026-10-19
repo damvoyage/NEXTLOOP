@@ -267,26 +267,38 @@ int main (int argc, char** argv)
         CHECK (d0.uiPosition.load() > target, "did not jump out of the loop (pos %.0f, target %.0f)", d0.uiPosition.load(), target);
         std::printf ("  seek outside loop: loop off, playing from %.1f s\n", d0.uiPosition.load() / house->sampleRate);
 
-        // brake: slows to a stop in about the set time
+        // brake while held, then carry on from where the track would have been
         engine.post (DeckCommand::SeekFraction, 0, 0.3);
         engine.post (DeckCommand::Play, 0);
         rig.render (0.3);
+        const double rate = house->sampleRate / sr;   // track frames per output frame at 100 %
+        double p0 = d0.uiPosition.load();
         engine.post (DeckCommand::Brake, 0, 0.5);
         rig.render (0.25);
-        CHECK (d0.uiPlaying.load() && d0.uiBraking.load(), "brake stopped too early");
-        rig.render (0.4);
-        CHECK (! d0.uiPlaying.load() && ! d0.uiBraking.load(), "brake did not stop the deck");
+        CHECK (d0.uiPlaying.load() && d0.uiBraking.load(), "brake not running");
+        rig.render (0.6);   // past the stop, still held
+        CHECK (d0.uiPlaying.load() && rms (std::vector<float> (rig.l.end() - 4800, rig.l.end())) < 1e-4, "brake not silent at the stop while held");
+        engine.post (DeckCommand::BrakeEnd, 0);
+        rig.renderSamples (512);
+        double expect = p0 + (0.85 * sr + 512) * rate;
+        double errMs = (d0.uiPosition.load() - expect) / house->sampleRate * 1000.0;
+        CHECK (d0.uiPlaying.load() && ! d0.uiBraking.load(), "brake release did not resume");
+        CHECK (std::abs (errMs) < 15.0, "brake release landed %.1f ms off", errMs);
+        std::printf ("  brake release lands %.2f ms from where the track would have been\n", errMs);
 
-        // backspin: runs backwards, then stops
-        engine.post (DeckCommand::Play, 0);
-        rig.render (0.3);
-        const double before = d0.uiPosition.load();
+        // backspin while held, same return
+        p0 = d0.uiPosition.load();
         engine.post (DeckCommand::Backspin, 0, 0.6);
         rig.render (0.3);
-        CHECK (d0.uiPosition.load() < before, "backspin did not go backwards");
+        CHECK (d0.uiPosition.load() < p0, "backspin did not go backwards");
         rig.render (0.5);
-        CHECK (! d0.uiPlaying.load(), "backspin did not stop");
-        std::printf ("  brake and backspin: OK (backspin rewound %.2f s)\n", (before - d0.uiPosition.load()) / house->sampleRate);
+        engine.post (DeckCommand::BackspinEnd, 0);
+        rig.renderSamples (512);
+        expect = p0 + (0.8 * sr + 512) * rate;
+        errMs = (d0.uiPosition.load() - expect) / house->sampleRate * 1000.0;
+        CHECK (d0.uiPlaying.load(), "backspin release did not resume");
+        CHECK (std::abs (errMs) < 15.0, "backspin release landed %.1f ms off", errMs);
+        std::printf ("  backspin release lands %.2f ms from where the track would have been\n", errMs);
         engine.post (DeckCommand::Play, 0);
         rig.render (0.2);
     }

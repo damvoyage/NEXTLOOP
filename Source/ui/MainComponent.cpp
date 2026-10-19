@@ -72,35 +72,48 @@ MainComponent::MainComponent (AudioEngine& e, juce::PropertiesFile& p)
     addAndMakeVisible (settingsButton);
     settingsButton.onClick = [this] { showSettings(); };
 
+    const bool dayNight = Theme::skinUsesDayNight (Theme::skin);
     addAndMakeVisible (themeButton);
-    themeButton.setButtonText (Theme::day ? "Night" : "Day");
-    themeButton.setTooltip (Theme::day ? "Switch to the dark night look" : "Switch to the white day look");
+    themeButton.setButtonText (Theme::userDay ? "Night" : "Day");
+    themeButton.setTooltip (dayNight ? (Theme::userDay ? "Switch to the dark night look" : "Switch to the light day look")
+                                     : "Day / Night applies to the Gunmetal and Flat skins");
+    themeButton.setEnabled (dayNight);
     themeButton.onClick = [this]
     {
-        props.setValue ("dayMode", ! Theme::day);
-        Theme::setDay (! Theme::day);
+        props.setValue ("dayMode", ! Theme::userDay);
+        Theme::setDay (! Theme::userDay);
         rebuildLook();
     };
 
     addAndMakeVisible (monoButton);
-    monoButton.setButtonText (Theme::mono ? "Colour" : "Mono");
-    monoButton.setTooltip (Theme::mono ? "Bring back the deck colours" : "Clinical look: greys only, no colour");
+    monoButton.setButtonText (Theme::userMono ? "Colour" : "Mono");
+    monoButton.setTooltip (dayNight ? (Theme::userMono ? "Bring back the deck colours" : "Clinical look: greys only, no colour")
+                                    : "Mono / Colour applies to the Gunmetal and Flat skins");
+    monoButton.setEnabled (dayNight);
     monoButton.onClick = [this]
     {
-        props.setValue ("monoMode", ! Theme::mono);
-        Theme::set (Theme::day, ! Theme::mono);
+        props.setValue ("monoMode", ! Theme::userMono);
+        Theme::set (Theme::userDay, ! Theme::userMono);
         rebuildLook();
     };
 
-    addAndMakeVisible (skinButton);
-    skinButton.setButtonText (Theme::tech ? "Flat" : "Tech");
-    skinButton.setTooltip (Theme::tech ? "Switch to the quiet flat look" : "Switch to the 2000s hardware look: brushed metal, glossy keys, glowing LEDs");
-    skinButton.onClick = [this]
+    addAndMakeVisible (skinBox);
+    for (int i = 0; i < Theme::numSkins; ++i)
+        skinBox.addItem (Theme::skinName ((Theme::Skin) i), i + 1);
+    skinBox.setSelectedId ((int) Theme::skin + 1, juce::dontSendNotification);
+    skinBox.setTooltip (juce::String ("Skin: ") + Theme::skinBlurb (Theme::skin));
+    skinBox.onChange = [this]
     {
-        props.setValue ("techSkin", ! Theme::tech);
-        Theme::set (Theme::day, Theme::mono, ! Theme::tech);
+        const int sk = skinBox.getSelectedId() - 1;
+        if (sk < 0 || sk == (int) Theme::skin) return;
+        props.setValue ("skin", sk);
+        Theme::set (Theme::userDay, Theme::userMono, (Theme::Skin) sk);
         rebuildLook();
     };
+    addAndMakeVisible (skinLabel);
+    skinLabel.setFont (Theme::label (12.0f, true));
+    skinLabel.setColour (juce::Label::textColourId, Theme::textDim);
+    skinLabel.setJustificationType (juce::Justification::centredRight);
 
     addAndMakeVisible (viewLabel);
     viewLabel.setFont (Theme::label (11.0f, true));
@@ -231,6 +244,11 @@ void MainComponent::saveEffects()
 void MainComponent::loadDeckSettings()
 {
     deckSettings.pitchUpIsFaster = props.getBoolValue ("pitchUpIsFaster", false);
+    for (int d = 0; d < maxDecks; ++d)
+    {
+        deckSettings.brakeSeconds[(size_t) d] = (float) props.getDoubleValue ("brakeSeconds." + juce::String (d), 0.8);
+        deckSettings.spinSeconds[(size_t) d]  = (float) props.getDoubleValue ("spinSeconds." + juce::String (d), 1.0);
+    }
     const auto saved = juce::StringArray::fromTokens (props.getValue ("quickLoops"), "|", "");
     for (int i = 0; i < juce::jmin (8, saved.size()); ++i)
     {
@@ -245,6 +263,11 @@ void MainComponent::saveDeckSettings()
     juce::StringArray s;
     for (auto& L : deckSettings.quickLoops) s.add (L.toString().toLowerCase());
     props.setValue ("quickLoops", s.joinIntoString ("|"));
+    for (int d = 0; d < maxDecks; ++d)
+    {
+        props.setValue ("brakeSeconds." + juce::String (d), (double) deckSettings.brakeSeconds[(size_t) d]);
+        props.setValue ("spinSeconds." + juce::String (d), (double) deckSettings.spinSeconds[(size_t) d]);
+    }
 }
 
 void MainComponent::setNumDecks (int n)
@@ -387,27 +410,34 @@ namespace
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::base);
+    Theme::drawWindowBackground (g, getLocalBounds());
     auto bar = getLocalBounds().removeFromTop (topBarH + viewBarH);
-
     if (Theme::tech)
     {
-        // machined top bar with a lit logo
-        auto b = bar.toFloat();
-        g.setGradientFill (juce::ColourGradient (Theme::panelTop.brighter (0.05f), 0.0f, b.getY(), Theme::panelBottom.darker (0.2f), 0.0f, b.getBottom(), false));
-        g.fillRect (b);
-        g.setColour (juce::Colours::white.withAlpha (Theme::day ? 0.6f : 0.08f));
-        g.drawHorizontalLine (1, 0.0f, b.getRight());
-        g.setColour (juce::Colours::black.withAlpha (Theme::day ? 0.3f : 0.8f));
-        g.drawHorizontalLine (topBarH, 8.0f, b.getRight() - 8.0f);
-        g.drawHorizontalLine ((int) b.getBottom() - 1, 0.0f, b.getRight());
-        g.setColour (juce::Colours::white.withAlpha (Theme::day ? 0.5f : 0.05f));
-        g.drawHorizontalLine (topBarH + 1, 8.0f, b.getRight() - 8.0f);
+        Theme::drawPanel (g, bar.toFloat());
+        if (Theme::skin != Theme::Skin::Win98)
+        {
+            g.setColour (juce::Colours::black.withAlpha (Theme::day ? 0.25f : 0.7f));
+            g.fillRect (8, topBarH, getWidth() - 16, 1);
+            g.setColour (juce::Colours::white.withAlpha (Theme::day ? 0.5f : 0.05f));
+            g.fillRect (8, topBarH + 1, getWidth() - 16, 1);
+        }
     }
 
     auto logo = juce::Rectangle<int> (12, 0, 140, topBarH);
-    g.setFont (Theme::numbers (21.0f));
     const int nextW = 58;
+    if (Theme::skin == Theme::Skin::Win98)
+    {
+        // a title bar, the way every 1998 window had one
+        auto tb = juce::Rectangle<float> (4.0f, 5.0f, 146.0f, (float) topBarH - 10.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff000080), tb.getX(), 0.0f, juce::Colour (0xff1084d0), tb.getRight(), 0.0f, false));
+        g.fillRect (tb);
+        g.setColour (juce::Colours::white);
+        g.setFont (Theme::numbers (17.0f));
+        g.drawText ("NEXTLOOP", tb.reduced (8.0f, 0.0f), juce::Justification::centredLeft);
+        return;
+    }
+    g.setFont (Theme::numbers (21.0f));
     g.setColour (Theme::text);
     g.drawText ("NEXT", logo.withWidth (nextW), juce::Justification::centredLeft);
     const auto accent = Theme::tech ? Theme::active : Theme::text;
@@ -431,7 +461,8 @@ void MainComponent::resized()
     top.removeFromRight (4);
     monoButton.setBounds (top.removeFromRight (64));
     top.removeFromRight (4);
-    skinButton.setBounds (top.removeFromRight (56));
+    skinBox.setBounds (top.removeFromRight (128));
+    skinLabel.setBounds (top.removeFromRight (36));
     top.removeFromRight (10);
     deckCountLabel.setBounds (top.removeFromLeft (50));
     top.removeFromLeft (6);

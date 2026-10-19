@@ -261,6 +261,22 @@ void Deck::exitLoopIfOutside (double target)
     }
 }
 
+void Deck::startTransportEffect()
+{
+    const double pos = computeAudiblePosition();
+    effectSlipPos = pos;
+    if (stretchPrimed) { readPos = pos; stretchPrimed = false; }
+    xfadeRemaining = 0;
+}
+
+void Deck::endTransportEffect()
+{
+    braking = backspinning = false;
+    brakeFactor = 1.0;
+    playing = true;
+    jumpTo (juce::jmax (0.0, effectSlipPos), false);
+}
+
 void Deck::snapPhaseToMaster (const SyncContext& ctx)
 {
     if (! hasGrid() || ctx.masterBpm <= 1.0) return;
@@ -399,21 +415,20 @@ void Deck::process (float* outL, float* outR, int n, const SyncContext& ctx)
 
     // full tempo range: 0 % (stopped) to 200 % (double speed)
     double rate = juce::jlimit (0.0, 2.0, base * (1.0 + correction) + (double) bend.load());
+    if (braking || backspinning)
+    {
+        // the track keeps moving underneath, so release lands where it would have been
+        effectSlipPos += (double) n * rate * srr;
+        const double len = loopEnd - loopStart;
+        if (loopActive && len > 4.0 && effectSlipPos >= loopEnd)
+            effectSlipPos = loopStart + std::fmod (effectSlipPos - loopStart, len);
+    }
     if (braking)
     {
         if (! playing) braking = false;
-        brakeFactor -= brakeStep * n;
-        if (brakeFactor <= 0.0)
-        {
-            braking = false;
-            brakeFactor = 1.0;
-            playing = false;
-        }
-        else
-        {
-            rate *= brakeFactor * brakeFactor;   // turntable platters slow fast, then drift
-            correction = 0.0;
-        }
+        brakeFactor = juce::jmax (0.0, brakeFactor - brakeStep * n);
+        rate *= brakeFactor * brakeFactor;   // turntable platters slow fast, then drift; held at a stop until release
+        correction = 0.0;
     }
     uiTempoRatio = juce::jlimit (0.0, 2.0, base + (double) bend.load());
 
@@ -432,15 +447,17 @@ void Deck::process (float* outL, float* outR, int n, const SyncContext& ctx)
     if (backspinning)
     {
         // a hand spin backwards: fast at first, slowing to a stop
-        const double t = spinElapsed / spinLength;
+        const double t = juce::jmin (1.0, spinElapsed / spinLength);
         const double v = -3.2 * (1.0 - t) * (1.0 - t);
-        renderSource (outL, outR, n, v * srr);
-        spinElapsed += (double) n / deviceSampleRate;
-        if (spinElapsed >= spinLength || readPos <= 0.0)
+        if (t >= 1.0 || readPos <= 0.0)
         {
-            backspinning = false;
-            playing = false;
+            // spun to a stop: silent until the button is let go
+            juce::FloatVectorOperations::clear (outL, n);
+            juce::FloatVectorOperations::clear (outR, n);
         }
+        else
+            renderSource (outL, outR, n, v * srr);
+        spinElapsed += (double) n / deviceSampleRate;
     }
     else if (scratching)
     {
@@ -573,7 +590,7 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
     switch (cmd.type)
     {
         case C::Play:
-            braking = backspinning = false;
+            if (braking || backspinning) { endTransportEffect(); break; }
             if (cueHeld || hotCueHeld >= 0) { cueHeld = false; hotCueHeld = -1; playing = true; }
             else if (! playing) startPlayback (ctx);
             break;
@@ -584,7 +601,7 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
             break;
 
         case C::TogglePlay:
-            if (braking || backspinning) { braking = backspinning = false; playing = true; break; }
+            if (braking || backspinning) { endTransportEffect(); break; }
             if (cueHeld || hotCueHeld >= 0) { cueHeld = false; hotCueHeld = -1; playing = true; }
             else if (playing) playing = false;
             else startPlayback (ctx);
@@ -686,8 +703,9 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
         }
 
         case C::Brake:
-            if (playing && ! backspinning)
+            if (playing && ! backspinning && ! braking)
             {
+                startTransportEffect();
                 braking = true;
                 brakeFactor = 1.0;
                 brakeStep = 1.0 / (juce::jlimit (0.05, 10.0, cmd.a) * deviceSampleRate);
@@ -695,17 +713,22 @@ Track* Deck::handleCommand (const DeckCommand& cmd, const SyncContext& ctx)
             break;
 
         case C::Backspin:
-            if (playing || cueHeld)
+            if (playing && ! backspinning)
             {
-                cueHeld = false;
-                playing = true;
+                startTransportEffect();
                 braking = false;
                 backspinning = true;
                 spinElapsed = 0.0;
-                spinLength = juce::jlimit (0.2, 10.0, cmd.a);
-                if (stretchPrimed) { readPos = audiblePos(); stretchPrimed = false; }
-                xfadeRemaining = 0;
+                spinLength = juce::jlimit (0.1, 10.0, cmd.a);
             }
+            break;
+
+        case C::BrakeEnd:
+            if (braking) endTransportEffect();
+            break;
+
+        case C::BackspinEnd:
+            if (backspinning) endTransportEffect();
             break;
 
         case C::SeekBeats:
