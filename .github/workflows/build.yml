@@ -52,10 +52,33 @@ jobs:
             artifact: NEXTLOOP-Windows7-x86
     steps:
       - uses: actions/checkout@v5
+      - name: Allow long file paths
+        run: git config --system core.longpaths true
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DLOOPDECK_BUILD_TESTS=OFF -DLOOPDECK_JUCE_VERSION=${{ matrix.juce }}
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DLOOPDECK_BUILD_TESTS=OFF -DLOOPDECK_JUCE_VERSION=${{ matrix.juce }} *> configure.log
+          $code = $LASTEXITCODE
+          Get-Content configure.log
+          exit $code
       - name: Build
-        run: cmake --build build --config Release --parallel --target NEXTLOOP
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel --target NEXTLOOP *> build.log
+          $code = $LASTEXITCODE
+          Get-Content build.log
+          exit $code
+      - name: Report errors
+        if: failure()
+        shell: pwsh
+        run: |
+          foreach ($f in @("configure.log", "build.log")) {
+            if (Test-Path $f) {
+              $lines = Get-Content $f | Where-Object { $_ -match "error|Error|ERROR|fatal|failed" } | Select-Object -Last 25
+              if (-not $lines) { $lines = Get-Content $f -Tail 25 }
+              foreach ($l in $lines) { Write-Output ("::error title=" + $f + "::" + $l.Replace("%","%25")) }
+            }
+          }
       - name: Package
         shell: pwsh
         run: |
@@ -74,9 +97,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Configure
-        run: cmake -S . -B build -G Xcode -DLOOPDECK_BUILD_TESTS=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+        run: |
+          set -o pipefail
+          cmake -S . -B build -G Xcode -DLOOPDECK_BUILD_TESTS=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 2>&1 | tee configure.log
       - name: Build
-        run: cmake --build build --config Release --target NEXTLOOP -- -quiet
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --target NEXTLOOP -- -quiet 2>&1 | tee build.log
+      - name: Report errors
+        if: failure()
+        run: |
+          for f in configure.log build.log; do
+            [ -f "$f" ] || continue
+            grep -iE "error|fatal|failed" "$f" | tail -25 | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done
+          done
       - name: Sign (ad hoc) and package
         run: |
           APP=build/NEXTLOOP_artefacts/Release/NEXTLOOP.app
